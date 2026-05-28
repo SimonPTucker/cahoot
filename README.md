@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/banner.svg" alt="Cahoot — mission control for agent fleets" width="640">
+<img src="docs/assets/banner.svg" alt="Cahoot — mission control for agent fleets" width="820">
 
 **A terminal-native operator console for multi-agent AI orchestration.**
 Built to live in a long-running tmux session you SSH into from anywhere.
