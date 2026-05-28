@@ -2,12 +2,35 @@
 #
 # Copy this to ~/.config/cahoot/cahoot.toml and edit. See docs/OPERATIONS.md
 # for the lookup order and docs/ADAPTERS.md for per-adapter options.
+#
+# QUICK FIELD GUIDE
+#   id    — your choice; short unique label that appears in the roster.
+#   role  — your choice; free-text description (Cahoot uses it for display
+#           and for @role mention routing). Pick anything: planner, writer,
+#           reviewer, formatter, scout, qa — whatever fits your team.
+#   kind  — RESERVED; must match a registered adapter: "synthetic",
+#           "hermes", or "openclaw". Adding a new kind is a 1-line registry
+#           edit (see docs/ADAPTERS.md).
+#
+# Anything beyond id / role / kind / version / cwd / permission_policy is
+# passed straight through to the adapter constructor as a keyword
+# argument — useful for per-adapter knobs like OpenClaw's token_file.
 
 [cahoot]
-# Default room name for chat / events.
+# Default room name for chat / events. Your choice; "ops" is conventional.
 room = "ops"
 # DEBUG | INFO | WARNING | ERROR
 log_level = "INFO"
+
+# -----------------------------------------------------------------------------
+# Optional admission gate. Without this block, mode defaults to "open" and
+# every agent Cahoot spawns is admitted as soon as it ACKs the welcome.
+# In "strict" mode every [[agents]] below is auto-allowlisted; only IDs
+# also listed in allowed_ids (or in [[agents]]) can join.
+# -----------------------------------------------------------------------------
+# [cahoot.admission]
+# mode = "strict"
+# allowed_ids = []
 
 # -----------------------------------------------------------------------------
 # Synthetic agent for testing the dashboard before real adapters land.
@@ -15,9 +38,9 @@ log_level = "INFO"
 # real agents are configured.
 # -----------------------------------------------------------------------------
 [[agents]]
-id = "synthetic-1"
-role = "test"
-kind = "synthetic"
+id   = "synthetic-1"   # label of your choosing
+role = "test"          # label of your choosing
+kind = "synthetic"     # RESERVED — must be "synthetic"
 chatter_interval_s = 2.0
 # Uncomment to exercise the reconnect loop (each read_loop iteration raises):
 # drop_probability = 0.2
@@ -36,29 +59,35 @@ chatter_interval_s = 2.0
 # completed once.
 # -----------------------------------------------------------------------------
 
-# Hermes Agent (NousResearch/hermes-agent) — the orchestrator.
+# Hermes Agent (NousResearch/hermes-agent).
+# In our setup it's the planner / orchestrator, but Cahoot doesn't care
+# what you call it. Change `role` to whatever describes your usage.
 # `version` pins the uvx --from spec so the build is reproducible.
 # [[agents]]
-# id = "hermes-main"
-# role = "orchestrator"
-# kind = "hermes"
+# id   = "hermes-main"   # YOUR LABEL — must be unique across all agents
+# role = "planner"       # YOUR LABEL — any word that fits (e.g. "main", "orchestrator")
+# kind = "hermes"        # RESERVED — must be "hermes"
 # version = "0.14.0"
 # cwd = "~/work/project"
-# permission_policy = "auto-allow"  # or "deny"
+# permission_policy = "auto-allow"  # "auto-allow" or "deny"
 
-# OpenClaw formatter #1 — routes through the OpenClaw Gateway.
-# Prefer token_file over inline token so the secret stays out of the config.
+# OpenClaw, first seat. Two seats below = two parallel jobs against the
+# same OpenClaw Gateway. `session` is OpenClaw's own selector format
+# (agent:<name>:<profile>) — substitute the session IDs you configured
+# inside OpenClaw. Prefer token_file over inline `token` so the secret
+# stays out of the config and process listing.
 # [[agents]]
-# id = "openclaw-formatter-1"
-# role = "formatter"
+# id   = "openclaw-1"     # YOUR LABEL
+# role = "writer"         # YOUR LABEL — could be "formatter", "qa", "researcher"…
+# kind = "openclaw"       # RESERVED — must be "openclaw"
+# token_file = "~/.openclaw/main.token"
+# session    = "agent:writer:main"
+
+# OpenClaw, second seat — same role so /@writer mentions can land on
+# either of them.
+# [[agents]]
+# id   = "openclaw-2"
+# role = "writer"
 # kind = "openclaw"
 # token_file = "~/.openclaw/main.token"
-# session = "agent:formatter:main"
-
-# OpenClaw formatter #2 — second seat on the same gateway session pool.
-# [[agents]]
-# id = "openclaw-formatter-2"
-# role = "formatter"
-# kind = "openclaw"
-# token_file = "~/.openclaw/main.token"
-# session = "agent:formatter:secondary"
+# session    = "agent:writer:secondary"
