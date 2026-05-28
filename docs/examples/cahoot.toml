@@ -1,0 +1,38 @@
+# Example Cahoot configuration.
+#
+# Copy this to ~/.config/cahoot/cahoot.toml and edit. See docs/OPERATIONS.md
+# for the lookup order and docs/ADAPTERS.md for per-adapter options.
+
+[cahoot]
+# Default room name for chat / events.
+room = "ops"
+# DEBUG | INFO | WARNING | ERROR
+log_level = "INFO"
+
+# -----------------------------------------------------------------------------
+# Synthetic agent for testing the dashboard before real adapters land.
+# Safe to leave in; useful for verifying the UI keeps rendering even when no
+# real agents are configured.
+# -----------------------------------------------------------------------------
+[[agents]]
+id = "synthetic-1"
+role = "test"
+kind = "synthetic"
+chatter_interval_s = 2.0
+# Uncomment to exercise the reconnect loop (each read_loop iteration raises):
+# drop_probability = 0.2
+
+# -----------------------------------------------------------------------------
+# Real agents — uncomment once the concrete adapters are built (phase 2).
+# -----------------------------------------------------------------------------
+
+# [[agents]]
+# id = "hermes-main"
+# role = "orchestrator"
+# kind = "hermes"
+# version = "0.9.4"
+
+# [[agents]]
+# id = "openclaw-runner"
+# role = "formatter"
+# kind = "openclaw"

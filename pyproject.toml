@@ -1,0 +1,115 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cahoot"
+version = "0.1.0"
+description = "Mission control for agent fleets — a terminal-native operator console for multi-agent orchestration."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Cahoot Contributors" }]
+keywords = ["tui", "agents", "mission-control", "tmux", "textual", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console :: Curses",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Monitoring",
+    "Topic :: Terminals",
+]
+
+dependencies = [
+    "pydantic>=2.6",
+    "textual>=0.60",
+    "rich>=13.7",
+    "structlog>=24.1",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+
+[project.scripts]
+cahoot = "cahoot.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/SimonPTucker/cahoot"
+Issues = "https://github.com/SimonPTucker/cahoot/issues"
+Documentation = "https://github.com/SimonPTucker/cahoot/tree/main/docs"
+
+# ----------------------------------------------------------------------------
+# Tooling
+# ----------------------------------------------------------------------------
+
+[tool.hatch.build.targets.wheel]
+packages = ["cahoot"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["docs", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "UP",       # pyupgrade
+    "B",        # flake8-bugbear
+    "ASYNC",    # flake8-async
+    "RUF",      # ruff-specific
+    "SIM",      # simplify
+    "C4",       # comprehensions
+]
+ignore = [
+    "E501",   # line length handled by formatter
+    "B008",   # function calls in defaults (Pydantic uses this)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]  # asserts are fine in tests
+"cahoot/banner.py" = ["W291", "W293"]  # trailing whitespace is part of the ASCII art
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+disallow_untyped_decorators = false  # pytest decorators are loose
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["cahoot"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "@abc.abstractmethod",
+]
