@@ -14,6 +14,18 @@ pre-commit install   # optional but recommended
 
 Requires **Python 3.11+** and **tmux 3.0+** to actually run the app.
 
+### macOS + Python 3.13 gotcha
+
+`python -m venv` on macOS marks `.venv/` as hidden (`UF_HIDDEN`), and Python 3.13's `site.py` now skips `.pth` files that inherit that flag. The hatchling editable install drops a `_editable_impl_cahoot.pth` into the venv that gets skipped, so `cahoot` and `python -m cahoot` (without `PYTHONPATH`) both fail with `ModuleNotFoundError: No module named 'cahoot'`.
+
+One-time fix after install:
+
+```bash
+chflags -R nohidden .venv
+```
+
+Re-run after any `pip install -e .` or `pip install -e ".[dev]"`. Affects local dev only — CI on Ubuntu/macOS works without it because it doesn't keep a long-lived `.venv`.
+
 ## The four gates
 
 A PR is ready when these all pass locally:
