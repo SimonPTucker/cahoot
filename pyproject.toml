@@ -34,6 +34,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Real adapters that speak Agent Client Protocol (Hermes, OpenClaw) need the
+# `acp` python package. Installed on demand so a synthetic-only build stays
+# tiny.
+acp = [
+    "agent-client-protocol>=0.5",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -41,6 +47,7 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.10",
     "pre-commit>=3.7",
+    "agent-client-protocol>=0.5",  # so adapter tests can import acp
 ]
 
 [project.scripts]

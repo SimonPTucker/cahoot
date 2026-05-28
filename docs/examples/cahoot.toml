@@ -23,16 +23,42 @@ chatter_interval_s = 2.0
 # drop_probability = 0.2
 
 # -----------------------------------------------------------------------------
-# Real agents — uncomment once the concrete adapters are built (phase 2).
+# Real agents — uncomment and edit for your fleet.
+#
+# Both adapters speak ACP (Agent Client Protocol — JSON-RPC over stdio,
+# the protocol Hermes and OpenClaw natively expose). Cahoot spawns the
+# agent as a subprocess and routes operator DMs to it.
+#
+# Install the ACP extra first:
+#     pip install -e ".[acp]"
+# Hermes additionally needs `uv` / `uvx` on PATH.
+# OpenClaw needs the `openclaw` CLI installed and `openclaw onboard`
+# completed once.
 # -----------------------------------------------------------------------------
 
+# Hermes Agent (NousResearch/hermes-agent) — the orchestrator.
+# `version` pins the uvx --from spec so the build is reproducible.
 # [[agents]]
 # id = "hermes-main"
 # role = "orchestrator"
 # kind = "hermes"
-# version = "0.9.4"
+# version = "0.14.0"
+# cwd = "~/work/project"
+# permission_policy = "auto-allow"  # or "deny"
 
+# OpenClaw formatter #1 — routes through the OpenClaw Gateway.
+# Prefer token_file over inline token so the secret stays out of the config.
 # [[agents]]
-# id = "openclaw-runner"
+# id = "openclaw-formatter-1"
 # role = "formatter"
 # kind = "openclaw"
+# token_file = "~/.openclaw/main.token"
+# session = "agent:formatter:main"
+
+# OpenClaw formatter #2 — second seat on the same gateway session pool.
+# [[agents]]
+# id = "openclaw-formatter-2"
+# role = "formatter"
+# kind = "openclaw"
+# token_file = "~/.openclaw/main.token"
+# session = "agent:formatter:secondary"

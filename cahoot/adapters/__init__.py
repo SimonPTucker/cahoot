@@ -10,14 +10,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .hermes import HermesAdapter
+from .openclaw import OpenClawAdapter
 from .synthetic import SyntheticAdapter
 
 if TYPE_CHECKING:
     from ..adapter import AgentAdapter
 
-__all__ = ["REGISTRY", "SyntheticAdapter"]
+__all__ = [
+    "REGISTRY",
+    "HermesAdapter",
+    "OpenClawAdapter",
+    "SyntheticAdapter",
+]
 
 
 REGISTRY: dict[str, type[AgentAdapter]] = {
     "synthetic": SyntheticAdapter,
+    "hermes": HermesAdapter,
+    "openclaw": OpenClawAdapter,
 }
