@@ -36,6 +36,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sys
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -287,18 +288,41 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--server",
-        required=True,
-        help="Cahoot WebSocket URL, e.g. ws://my-mac-mini.local:9876",
+        default=None,
+        help=(
+            "Cahoot WebSocket URL, e.g. ws://my-mac-mini.local:9876. "
+            "Omit (or pass 'auto') to discover via mDNS / Bonjour."
+        ),
+    )
+    p.add_argument(
+        "--server-name",
+        default=None,
+        help=(
+            "When discovering, pick the instance with this short name "
+            "(e.g. 'mac-mini'). Useful if multiple Cahoot instances are on "
+            "the LAN."
+        ),
+    )
+    p.add_argument(
+        "--list",
+        action="store_true",
+        help="List Cahoot instances discovered via mDNS, then exit.",
+    )
+    p.add_argument(
+        "--discover-timeout-s",
+        type=float,
+        default=2.5,
+        help="Seconds to spend browsing for Cahoot instances (default 2.5).",
     )
     p.add_argument(
         "--token",
-        required=True,
+        default=None,
         help="One-shot invite token from /invite in the Cahoot TUI.",
     )
     p.add_argument(
         "--as",
         dest="agent_id",
-        required=True,
+        default=None,
         help="The agent_id this seat will claim. Must match the /invite.",
     )
     p.add_argument(
@@ -334,26 +358,96 @@ def _build_argparser() -> argparse.ArgumentParser:
     return p
 
 
+async def _discover_one(name_hint: str | None, timeout_s: float) -> str:
+    """Browse the LAN; return ``ws://host:port`` for the chosen instance."""
+    from .discovery import browse
+
+    found = await browse(timeout_s=timeout_s)
+    if not found:
+        raise RuntimeError(
+            "no Cahoot instance discovered on the LAN. "
+            "Make sure [cahoot.listener].advertise is true on the Cahoot "
+            "host, or pass --server explicitly."
+        )
+    if name_hint is not None:
+        for inst in found:
+            if inst.name == name_hint:
+                return inst.url
+        raise RuntimeError(
+            f"no Cahoot instance named {name_hint!r}; saw: {', '.join(i.name for i in found)}"
+        )
+    if len(found) > 1:
+        raise RuntimeError(
+            "multiple Cahoot instances on the LAN — "
+            "use --server-name to pick one: " + ", ".join(f"{i.name} ({i.url})" for i in found)
+        )
+    return found[0].url
+
+
+async def _do_list(timeout_s: float) -> int:
+    from .discovery import browse
+
+    found = await browse(timeout_s=timeout_s)
+    if not found:
+        print(
+            "no Cahoot instances found on the LAN within "
+            f"{timeout_s}s — is [cahoot.listener].enabled = true on the host?"
+        )
+        return 1
+    print(f"discovered {len(found)} Cahoot instance(s):")
+    for inst in found:
+        print(f"  {inst.name:<20} {inst.url}  room={inst.room}  v{inst.version}")
+    return 0
+
+
 def main() -> int:
     args = _build_argparser().parse_args()
     setup_logging(level=getattr(logging, args.log_level.upper(), logging.INFO))
+
+    # --list short-circuits everything else.
+    if args.list:
+        try:
+            return asyncio.run(_do_list(args.discover_timeout_s))
+        except KeyboardInterrupt:
+            return 130
+        except Exception as exc:
+            print(f"cahoot-join: {exc}", file=sys.stderr)
+            return 1
+
+    # Required-arg checks moved here so --list doesn't fail validation.
+    if args.token is None or args.agent_id is None:
+        print(
+            "cahoot-join: --token and --as are required (unless --list)",
+            file=sys.stderr,
+        )
+        return 2
+
     agent_argv = list(args.agent_argv or [])
     if agent_argv and agent_argv[0] == "--":
         agent_argv = agent_argv[1:]
-    try:
-        return asyncio.run(
-            _bridge(
-                server=args.server,
-                token=args.token,
-                agent_id=args.agent_id,
-                role=args.role,
-                kind=args.kind,
-                agent_argv=agent_argv,
-                cwd=str(Path(args.cwd).expanduser()) if args.cwd else None,
-            )
+
+    async def _go() -> int:
+        server = args.server
+        if server is None or server.lower() == "auto":
+            server = await _discover_one(args.server_name, args.discover_timeout_s)
+            log.info("bridge: discovered %s", server)
+        return await _bridge(
+            server=server,
+            token=args.token,
+            agent_id=args.agent_id,
+            role=args.role,
+            kind=args.kind,
+            agent_argv=agent_argv,
+            cwd=str(Path(args.cwd).expanduser()) if args.cwd else None,  # noqa: ASYNC240
         )
+
+    try:
+        return asyncio.run(_go())
     except KeyboardInterrupt:
         return 130
+    except Exception as exc:
+        print(f"cahoot-join: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

@@ -122,6 +122,7 @@ async def _amain(no_ui: bool, no_store: bool, cfg_path: Path | None) -> None:
                 bind=cfg.listener.bind,
                 port=cfg.listener.port,
                 room=cfg.room,
+                advertise=cfg.listener.advertise,
             ),
             name="listener",
         )

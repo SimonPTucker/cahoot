@@ -40,9 +40,11 @@ dependencies = [
 acp = [
     "agent-client-protocol>=0.5",
 ]
-# Network onboarding: the WebSocket listener + `cahoot-join` bridge CLI.
+# Network onboarding: the WebSocket listener + `cahoot-join` bridge CLI
+# + zero-config Bonjour/mDNS discovery so the bridge can auto-find Cahoot.
 network = [
     "websockets>=12.0",
+    "zeroconf>=0.131",
 ]
 dev = [
     "pytest>=8.0",
@@ -53,6 +55,7 @@ dev = [
     "pre-commit>=3.7",
     "agent-client-protocol>=0.5",  # so adapter tests can import acp
     "websockets>=12.0",            # so listener tests can spin a server
+    "zeroconf>=0.131",             # so discovery tests can advertise + browse
 ]
 
 [project.scripts]

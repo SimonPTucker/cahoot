@@ -40,6 +40,8 @@ class ListenerConfig:
     bind: str = "0.0.0.0"
     port: int = 9876
     invite_ttl_s: int = 30 * 60
+    advertise: bool = True
+    """Broadcast this instance over mDNS so cahoot-join can auto-discover it."""
 
 
 class ConfigError(ValueError):
@@ -164,13 +166,20 @@ def _parse_listener(section: Any) -> ListenerConfig:
     bind = section.get("bind", "0.0.0.0")
     port = section.get("port", 9876)
     ttl = section.get("invite_ttl_s", 30 * 60)
+    advertise = bool(section.get("advertise", True))
     if not isinstance(bind, str):
         raise ConfigError("[cahoot.listener].bind must be a string")
     if not isinstance(port, int) or not 0 < port < 65536:
         raise ConfigError("[cahoot.listener].port must be a port number")
     if not isinstance(ttl, int) or ttl <= 0:
         raise ConfigError("[cahoot.listener].invite_ttl_s must be a positive int")
-    return ListenerConfig(enabled=enabled, bind=bind, port=port, invite_ttl_s=ttl)
+    return ListenerConfig(
+        enabled=enabled,
+        bind=bind,
+        port=port,
+        invite_ttl_s=ttl,
+        advertise=advertise,
+    )
 
 
 def _parse_admission(section: Any, agents: list[AgentSpec]) -> AdmissionPolicy:

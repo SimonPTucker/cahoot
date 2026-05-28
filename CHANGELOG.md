@@ -35,3 +35,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - `[cahoot.listener]` config section: `enabled`, `bind`, `port`, `invite_ttl_s`. Off by default.
 - Optional `[network]` extra pulling in `websockets>=12.0` for the server + bridge.
 - 13 new tests covering token lifecycle (mint, redeem, expiry, revocation, wrong-agent-id rejection) and end-to-end listener handshakes (invalid token, valid token, inbound envelope translation, duplicate connection refusal). Total: 107 passing.
+
+### Added (Phase B.1 — mDNS / Bonjour discovery)
+- `cahoot/discovery.py` — async wrappers around the `zeroconf` package for advertising and browsing `_cahoot._tcp.local.`. Service name = short hostname; TXT record carries protocol version, room, full hostname, and proto (`ws`).
+- Listener now optionally advertises on startup. `[cahoot.listener].advertise` (default `true`) controls it; turn off if you're running multiple Cahoot instances and don't want them visible.
+- `cahoot-join` now supports auto-discovery: omit `--server` (or pass `--server auto`) and the bridge browses for 2.5s and connects to whatever it finds. `--server-name <name>` picks one when several are visible; `--list` enumerates them and exits.
+- 4 new tests cover advertise + browse roundtrip on loopback (single instance, two instances simultaneously, empty-LAN baseline, service-type constant). Total: 111 passing.
+- `zeroconf>=0.131` added to the `[network]` extra (pure-Python, no system deps).
+- New `docs/ONBOARDING.md` — comprehensive end-to-end guide to network agent onboarding: architecture diagram, five-step flow, full wire-frame catalogue, invite token semantics, discovery details, admission modes, disconnection semantics, security model, troubleshooting playbook, cheat sheet.

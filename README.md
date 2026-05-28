@@ -5,7 +5,7 @@
 **One screen to watch and steer all your AI agents — running on your Mac, reachable from any device over SSH.**
 A terminal-native operator console for multi-agent AI orchestration, built to live in a long-running `tmux` session on an always-on Apple Silicon Mac.
 
-[How it works](#how-it-works) · [Writing adapters](docs/ADAPTERS.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](#roadmap)
+[How it works](#how-it-works) · [Agent onboarding](docs/ONBOARDING.md) · [Writing adapters](docs/ADAPTERS.md) · [Operations](docs/OPERATIONS.md) · [Roadmap](#roadmap)
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -150,7 +150,9 @@ cahoot-join \
 
 `cahoot-join` spawns the agent locally on that machine, opens a WebSocket to Cahoot, validates the token, and bridges the two. From Cahoot's point of view the agent appears in the roster, goes through the standard welcome → `READY` → admission → instructions handshake, and accepts `/dm`, `/approve`, `/deny` exactly like a locally-spawned one. `Ctrl-C` on the agent's box (or `tmux kill-session`, or unplugging the network cable) cleanly disconnects it; the slot in Cahoot frees up and the operator sees a status drop.
 
-The wire format is a tiny JSON-over-WebSocket protocol with one frame per envelope, documented in [`cahoot/adapters/remote.py`](cahoot/adapters/remote.py). There's **no TLS in v1** — the trust boundary is "your LAN", and the token plus single-use semantics gate authentication. v1.5 will add `wss://` + a self-signed cert and an operator-driven approval queue.
+**Auto-discovery.** Cahoot also advertises itself over Bonjour (mDNS) as `_cahoot._tcp.local.`. If `cahoot-join` is on the same LAN, you can drop the `--server` argument entirely and the bridge finds the host on its own. `cahoot-join --list` shows every Cahoot instance it can see — useful when more than one is running.
+
+The wire format is a tiny JSON-over-WebSocket protocol with one frame per envelope. The complete spec — frame catalogue, security model, troubleshooting playbook — lives in [`docs/ONBOARDING.md`](docs/ONBOARDING.md). There's **no TLS in v1** — the trust boundary is "your LAN", and the token plus single-use semantics gate authentication. v1.5 will add `wss://` + a self-signed cert and an operator-driven approval queue.
 
 If you don't yet have a real agent, you can still test the whole inbound path with the synthetic adapter:
 

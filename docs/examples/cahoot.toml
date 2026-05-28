@@ -47,6 +47,7 @@ log_level = "INFO"
 # bind = "0.0.0.0"     # 0.0.0.0 = LAN-wide; use 127.0.0.1 to lock to localhost
 # port = 9876
 # invite_ttl_s = 1800  # token lifetime in seconds (default 30 min)
+# advertise = true     # broadcast over mDNS so cahoot-join can auto-discover
 
 # -----------------------------------------------------------------------------
 # Synthetic agent for testing the dashboard before real adapters land.

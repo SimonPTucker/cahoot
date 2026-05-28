@@ -237,8 +237,14 @@ async def run_listener(
     bind: str = DEFAULT_BIND,
     port: int = DEFAULT_PORT,
     room: str = "ops",
+    advertise: bool = True,
 ) -> None:
-    """Convenience: run the listener until ``stop`` is set."""
+    """Convenience: run the listener until ``stop`` is set.
+
+    If ``advertise`` is True (default), also announce the service over
+    mDNS / Bonjour as ``_cahoot._tcp.local.`` so ``cahoot-join`` can
+    auto-discover this instance.
+    """
     server = await start_listener(
         bus=bus,
         invites=invites,
@@ -248,9 +254,27 @@ async def run_listener(
         port=port,
         room=room,
     )
+
+    advertiser_cm: Any = None
+    if advertise:
+        try:
+            from .discovery import advertise as _adv
+
+            advertiser_cm = _adv(port=port, room=room)
+            await advertiser_cm.__aenter__()
+        except Exception as exc:
+            log.warning(
+                "listener: mDNS advertise unavailable, continuing without it: %r",
+                exc,
+            )
+            advertiser_cm = None
+
     try:
         await stop.wait()
     finally:
+        if advertiser_cm is not None:
+            with suppress(Exception):
+                await advertiser_cm.__aexit__(None, None, None)
         server.close()
         with suppress(Exception):
             await server.wait_closed()
