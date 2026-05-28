@@ -65,164 +65,105 @@ A short glossary, because the rest of the document is denser if these mean diffe
 | **admission** / **quarantine** | Whether a connected agent is fully part of the fleet (`admitted`) or restricted to the operator only (`quarantined`). |
 | **enrollment** | The handshake — welcome prompt → agent ACKs with `READY` → admission decision → instructions prompt — that an ACP agent goes through on connect. |
 
-## Quick start (no real agents needed)
+## Pick your path
 
-The fastest way to see Cahoot working is with the bundled **synthetic adapter** — a fake agent that ticks every few seconds and exercises every code path the real adapters use. No Hermes install, no OpenClaw account, no API key.
+Three setup paths, in increasing realism. Pick one and follow the matching section below.
 
-> Tested on Apple Silicon (M-series) macOS with Python 3.11 / 3.12 / 3.13. CI also runs the test suite on Ubuntu. Other Unix-likes will probably work; Windows is untested. You need **Python 3.11+** ([downloads](https://www.python.org/downloads/)) and **tmux 3.0+** (`brew install tmux`).
+| Your situation | Read in order |
+|---|---|
+| **Just kicking the tyres.** No real agents yet, want to see if Cahoot is worth installing. | [Install Cahoot](#1-install-cahoot) → [First launch with a fake agent](#2-first-launch-with-a-fake-agent) |
+| **Everything lives on one Mac.** You'll run Cahoot *and* the agents on the same Apple Silicon box. | [Install Cahoot](#1-install-cahoot) → [Add real agents on the same machine](#3a-add-real-agents-on-the-same-machine) |
+| **Cahoot on one box, agents on others.** Mac mini hosts Cahoot; the agents run on other LAN machines. | [Install Cahoot](#1-install-cahoot) → [Connect agents from another machine on the LAN](#3b-connect-agents-from-another-machine-on-the-lan) |
+
+You can always start with the first path and move up — nothing in your config has to be thrown away.
+
+---
+
+## 1. Install Cahoot
+
+> **On:** the Mac that will host Cahoot — typically your always-on Mac mini.
+> **Prereqs:** Apple Silicon macOS, Python 3.11+ ([downloads](https://www.python.org/downloads/)), tmux 3.0+ (`brew install tmux`). Tested on macOS 14/15. Ubuntu is covered by CI; other Unix-likes will probably work; Windows is untested.
 
 ```bash
-# clone + install in editable mode
+# 1. Clone the repo.
 git clone https://github.com/SimonPTucker/cahoot.git
 cd cahoot
-python3 -m venv .venv && source .venv/bin/activate
+
+# 2. Create a virtualenv and install Cahoot in editable mode.
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 
-# (macOS + Python 3.13 only) the editable install ends up "hidden"; un-hide
-# it so the cahoot CLI can find itself — see CONTRIBUTING.md for why.
+# 3. (macOS + Python 3.13 only) Un-hide the editable install so the
+#    `cahoot` CLI can import itself. See CONTRIBUTING.md for the
+#    underlying macOS quirk.
 chflags -R nohidden .venv 2>/dev/null || true
 
-# run the full test suite — should report 94 passed
-pytest
+# 4. Sanity check — run the test suite. All 111 should pass.
+pytest -q
+```
 
-# drop in the bundled example config and launch the UI
+If `pytest -q` reports `111 passed`, every layer (bus, store, adapter lifecycle, UI, listener, discovery) is wired correctly. Carry on.
+
+## 2. First launch with a fake agent
+
+> **On:** the same Mac.
+> **What this does:** boots the TUI driven by the bundled **synthetic adapter** — a fake agent that ticks every couple of seconds and exercises every code path the real adapters use. No Hermes install, no OpenClaw account, no API key.
+
+```bash
+# 1. Drop the bundled example config into the standard location.
 mkdir -p ~/.config/cahoot
 cp docs/examples/cahoot.toml ~/.config/cahoot/cahoot.toml
+
+# 2. Launch.
 cahoot
 ```
 
-In about two seconds you should see the four-region dashboard: a roster on the left with the synthetic agent ticking, a feed in the middle filling with chat lines and metrics, an inspector on the right tracking the agent's counters, and a command box at the bottom. Try `/help`, then `/whoami`, then `/quit`.
+You should see the four-region dashboard within about two seconds:
 
-If you see all that, every layer — bus, store, adapter lifecycle, UI — is wired correctly. The next section swaps the synthetic agent for real ones.
+- **Left** — the roster, showing `synthetic-1` with a green status dot.
+- **Centre** — the feed, filling with chat lines like `synthetic-1 → operator: tick 3`.
+- **Right** — the inspector, tracking the agent's `chats`, `tasks`, `metrics` counters.
+- **Bottom** — the command box. Try, in order: `/help`, `/whoami`, `/roster`, then `/quit` to shut down cleanly.
 
-## Connecting agents from elsewhere on the LAN
+When you're ready for real agents, choose **3a** (same machine) or **3b** (across the LAN) below.
 
-You can run agents on the same Mac as Cahoot — the next section walks through that — but most real fleets have the agent processes spread across several machines on the same LAN. The Mac mini sits in the cupboard running Cahoot; the agents run on a workstation, a beefier GPU box, an old laptop. Cahoot has an **inbound onboarding mode** for that case.
+## 3a. Add real agents on the same machine
 
-The flow has three steps:
+> **On:** the same Mac as Cahoot. The agents are spawned as subprocesses on this same box.
 
-**Step 1 — turn on the listener.** Add this to your `~/.config/cahoot/cahoot.toml` and restart Cahoot:
-
-```toml
-[cahoot.listener]
-enabled = true     # listen for inbound cahoot-join connections
-bind    = "0.0.0.0"  # accept from any interface on the LAN
-port    = 9876
-invite_ttl_s = 1800  # tokens expire after 30 minutes
-```
-
-Cahoot logs `listener: announcing ws://<your-host>:9876 for invites` on startup.
-
-**Step 2 — mint an invite from the TUI.** Type:
-
-```
-/invite hermes-main planner
-```
-
-Cahoot prints a copy-pasteable block right in the feed:
-
-```
-invite for hermes-main (role: planner)
-  token expires in 30 minutes; single-use
-  paste this on the box where the agent will live:
-
-    cahoot-join \
-      --server ws://my-mac-mini.local:9876 \
-      --token CH7-9X42-8K3M \
-      --as hermes-main --role planner \
-      --kind hermes \
-      -- uvx --from 'hermes-agent[acp]' hermes-acp
-```
-
-`/invites` lists everything outstanding; tokens are single-use and time-bounded.
-
-**Step 3 — run that command on the agent's box.** On the workstation (or whichever machine the agent will actually live on), install Cahoot with the network extra and paste the command:
+### Install the agent runtimes you'll use
 
 ```bash
-pip install -e ".[acp,network]"      # acp for hermes/openclaw, network for the bridge
-cahoot-join \
-  --server ws://my-mac-mini.local:9876 \
-  --token CH7-9X42-8K3M \
-  --as hermes-main --role planner \
-  --kind hermes \
-  -- uvx --from 'hermes-agent[acp]' hermes-acp
-```
-
-`cahoot-join` spawns the agent locally on that machine, opens a WebSocket to Cahoot, validates the token, and bridges the two. From Cahoot's point of view the agent appears in the roster, goes through the standard welcome → `READY` → admission → instructions handshake, and accepts `/dm`, `/approve`, `/deny` exactly like a locally-spawned one. `Ctrl-C` on the agent's box (or `tmux kill-session`, or unplugging the network cable) cleanly disconnects it; the slot in Cahoot frees up and the operator sees a status drop.
-
-**Auto-discovery.** Cahoot also advertises itself over Bonjour (mDNS) as `_cahoot._tcp.local.`. If `cahoot-join` is on the same LAN, you can drop the `--server` argument entirely and the bridge finds the host on its own. `cahoot-join --list` shows every Cahoot instance it can see — useful when more than one is running.
-
-The wire format is a tiny JSON-over-WebSocket protocol with one frame per envelope. The complete spec — frame catalogue, security model, troubleshooting playbook — lives in [`docs/ONBOARDING.md`](docs/ONBOARDING.md). There's **no TLS in v1** — the trust boundary is "your LAN", and the token plus single-use semantics gate authentication. v1.5 will add `wss://` + a self-signed cert and an operator-driven approval queue.
-
-If you don't yet have a real agent, you can still test the whole inbound path with the synthetic adapter:
-
-```bash
-cahoot-join \
-  --server ws://my-mac-mini.local:9876 \
-  --token CH7-9X42-8K3M \
-  --as remote-synth-1 --role tester \
-  --kind synthetic
-```
-
-The next section is the alternative path — letting Cahoot spawn the agent locally on its own machine. Use that when you only have one box and don't want a separate `cahoot-join` process.
-
-## Adding real agents — Hermes and OpenClaw
-
-Both **Hermes Agent** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) and **OpenClaw** ([docs.openclaw.ai](https://docs.openclaw.ai)) natively expose [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) — JSON-RPC over stdio, the same protocol an IDE like Zed uses to drive them. Cahoot speaks the canonical client side via the official `agent-client-protocol` Python package, so there's no custom protocol or shim to maintain.
-
-A glossary footnote, since one acronym and two tools may be new:
-
-- **`uv` / `uvx`** is the Python package launcher from [Astral](https://docs.astral.sh/uv/) that Hermes recommends — it pins exact versions of Hermes's runtime without polluting your environment.
-- **`brew`** is [Homebrew](https://brew.sh/), the standard macOS package manager.
-- **ACP** is the [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) — a JSON-RPC dialect for an editor (or in our case Cahoot) to drive an AI agent over stdio.
-
-### What goes in each `[[agents]]` block
-
-Before the recipe, the field semantics — because three of these fields look like reserved keywords but are actually labels you choose:
-
-| Field | What it is | You pick? |
-|---|---|---|
-| `id` | A short unique label for this agent. It's what appears in the roster and what you type after `/dm`. Convention: kebab-case with a hint if you'll run multiples (`hermes-main`, `openclaw-1`). | **Yes — anything unique.** |
-| `role` | A **sticky note you put on the agent so you can tell which is which.** It lives entirely in Cahoot's world — it is *not* sent into the agent's configuration, model, system prompt, tools or capabilities. Cahoot uses it for two things: display in the roster widget, and `@<role>` mention routing. The agent's actual behaviour comes from its own setup (Hermes profile / OpenClaw session). | **Yes — anything.** |
-| `kind` | Which adapter Cahoot should spawn. **Reserved**: must be one of `synthetic`, `hermes`, `openclaw`. Adding a new kind is a one-line registry edit — see [`docs/ADAPTERS.md`](docs/ADAPTERS.md). | No — must match a registered kind. |
-| `version` | (Optional, Hermes-only) Pins the `uvx` build of Hermes so the spawned binary is reproducible. | Up to you (defaults to latest on PyPI). |
-| `cwd` | Working directory the agent will run in. | Yes. |
-| `permission_policy` | (Optional, ACP adapters) `auto-allow` (default) admits every tool call the agent asks to run; `deny` blocks them all. v1.5 will add an interactive prompt. | One of `auto-allow` \| `deny`. |
-| Anything else | Forwarded to the adapter constructor as keyword arguments. Hermes has no extras; OpenClaw accepts `token`, `token_file`, `session`, `session_label`, `gateway_url`, `reset_session`, `profile`. | Yes — these are OpenClaw's own CLI flags (`openclaw acp --help`). |
-
-> **The point:** `kind` is reserved. Everything else — including `role` — is a label you make up to help yourself read the screen. Two `role = "writer"` seats are not a Cahoot setting that makes them write; what they actually do is determined by their own Hermes / OpenClaw configuration.
-
-### 1. Install the agent runtimes
-
-```bash
-# Hermes — installed via uv/uvx so Cahoot can pin a specific build
+# Hermes — uses uv/uvx so Cahoot can pin a specific version.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# OpenClaw — its CLI handles its own onboarding (gateway URL, token, etc.)
-brew install openclaw         # or whichever distribution channel you use
-openclaw onboard              # one-time interactive setup
+# OpenClaw — its CLI handles its own onboarding (gateway URL, token, etc.).
+brew install openclaw
+openclaw onboard          # one-time interactive setup
 ```
 
-### 2. Install Cahoot with the ACP extra
+You only need the runtimes for the agent kinds you'll actually use.
+
+### Install Cahoot's ACP extra
 
 ```bash
 pip install -e ".[acp]"
+chflags -R nohidden .venv 2>/dev/null || true
 ```
 
-(On macOS + Python 3.13, follow up with `chflags -R nohidden .venv` — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for why.)
+### Edit `~/.config/cahoot/cahoot.toml`
 
-### 3. Edit `~/.config/cahoot/cahoot.toml`
-
-Below is a realistic three-agent fleet — **one Hermes + two OpenClaw seats**. Comments flag which fields are sticky-note labels you chose vs reserved keywords.
+A three-agent fleet — **one Hermes + two OpenClaw seats** — with every field annotated. Two of these fields *look like* reserved keywords but are actually labels you choose; see the table after the example.
 
 ```toml
 [cahoot]
 room = "ops"
 log_level = "INFO"
 
-# Optional: gate who can join the fleet. Without this block, admission
-# defaults to "open" and every agent Cahoot spawns is admitted as soon
-# as it replies READY to the welcome prompt.
+# Optional: gate who can join. Without this block, admission defaults
+# to "open" — every agent Cahoot spawns is admitted as soon as it
+# replies READY to the welcome prompt.
 [cahoot.admission]
 mode = "strict"     # "open" (default) or "strict"
 allowed_ids = []    # extra IDs to allow on top of the [[agents]] list
@@ -254,33 +195,143 @@ token_file = "~/.openclaw/main.token"
 session    = "agent:writer:secondary"
 ```
 
-**About OpenClaw's `session` value.** OpenClaw uses a structured session string (`agent:<name>:<profile>`) to address a specific seat inside its Gateway — see `openclaw acp --help`. The names `writer:main` and `writer:secondary` are placeholders; substitute the session IDs configured inside your own OpenClaw.
+### Field reference
 
-### 4. Start Cahoot
+| Field | What it is | You pick? |
+|---|---|---|
+| `id` | Short unique label. Appears in the roster; this is what you type after `/dm`. Convention: kebab-case (`hermes-main`, `openclaw-1`). | **Yes — anything unique.** |
+| `role` | A **sticky note you put on the agent so you can tell which is which.** Lives entirely in Cahoot's world — it is *not* sent into the agent's configuration, model, system prompt, tools or capabilities. Cahoot uses it for the roster display and `@<role>` mention routing. The agent's actual behaviour comes from its own setup (Hermes profile / OpenClaw session). | **Yes — anything.** |
+| `kind` | Which adapter Cahoot should spawn. **Reserved:** must be `synthetic`, `hermes`, or `openclaw`. Adding a new kind is a one-line registry edit — see [`docs/ADAPTERS.md`](docs/ADAPTERS.md). | No — must match a registered kind. |
+| `version` | (Hermes only, optional) Pins the `uvx` build of Hermes so the spawned binary is reproducible. | Up to you. |
+| `cwd` | Working directory the agent will run in. | Yes. |
+| `permission_policy` | (ACP adapters, optional) `auto-allow` (default) admits every tool call the agent asks to run; `deny` blocks them all. v1.5 will add an interactive prompt. | `auto-allow` \| `deny`. |
+| Anything else | Forwarded to the adapter constructor. Hermes has no extras; OpenClaw accepts `token`, `token_file`, `session`, `session_label`, `gateway_url`, `reset_session`, `profile`. | Yes — these are OpenClaw's own CLI flags (`openclaw acp --help`). |
+
+> Only `kind` is reserved. Everything else — including `role` — is a label you make up to help yourself read the screen. Two `role = "writer"` seats are not a Cahoot setting that makes them write; what they actually do is determined by their own Hermes / OpenClaw configuration.
+
+### Restart Cahoot
 
 ```bash
 cahoot
 ```
 
-For each `[[agents]]` block, Cahoot will:
+Per `[[agents]]` block, Cahoot will: spawn the agent → run the ACP `initialize` handshake → send the welcome prompt → wait for the literal `READY` token → decide admission → send the participation guide. The roster fills in within a second or two; the feed shows every step.
 
-1. **Spawn** the agent process (`uvx --from 'hermes-agent[acp]==0.14.0' hermes-acp` or `openclaw acp --token-file … --session …`).
-2. **Run the ACP initialise handshake** and open one long-lived session.
-3. **Send the welcome prompt.** The agent must reply with the literal token `READY` to confirm it's operational.
-4. **Decide admission.** Admitted → instructions prompt with the participation rules. Quarantined → operator-only visibility until `/approve`.
-5. **Stream the agent's notifications** onto the bus as chat / task / metric / status envelopes that the roster, feed and inspector all render live.
+Then use the slash commands documented under [§Operator commands](#operator-commands-once-running) below.
 
-Inside the TUI you have:
+## 3b. Connect agents from another machine on the LAN
 
-- `/roster` — every agent, its lifecycle state, and its enrollment.
-- `/dm hermes-main please review the release notes` — message one agent.
-- `/all heads up` — broadcast to every other agent.
-- `/approve openclaw-1` — live-admit a quarantined agent without a respawn.
-- `/deny openclaw-1 needs investigation` — quarantine an admitted agent (the agent gets a notice).
-- `/whoami` — operator context: hostname, user, tmux socket, SSH connection.
-- `/help` for the full list; `/quit` for a clean shutdown.
+> **On:** two machines.
+> **What this does:** Cahoot opens a WebSocket listener; on the agent's box you run `cahoot-join`, which spawns the agent locally and bridges its envelopes over the LAN to Cahoot. Same `welcome → READY → admission → instructions` handshake; same operator commands.
 
-Agents Cahoot spawned itself get a condensed participation guide automatically over ACP after admission — no system-prompt editing required. The canonical, copy-pasteable version is in [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) if you bootstrap an agent outside Cahoot.
+The full design — including the wire-frame catalogue and security model — is in [`docs/ONBOARDING.md`](docs/ONBOARDING.md). What follows is the minimum the operator has to do.
+
+### Step 1 — turn on the listener (on the Cahoot host, once)
+
+Append to `~/.config/cahoot/cahoot.toml`:
+
+```toml
+[cahoot.listener]
+enabled      = true        # accept inbound cahoot-join connections
+bind         = "0.0.0.0"   # "0.0.0.0" = LAN-wide; "127.0.0.1" locks to localhost
+port         = 9876
+invite_ttl_s = 1800        # tokens expire after 30 minutes
+advertise    = true        # broadcast over mDNS / Bonjour so cahoot-join can auto-find us
+```
+
+Restart Cahoot. You should see two confirmation lines in the log (`tail -F ~/.local/state/cahoot/cahoot.log`):
+
+```
+listener: ws server bound to 0.0.0.0:9876
+discovery: advertised <your-host>._cahoot._tcp.local. on port 9876 (room=ops)
+```
+
+The listener is now live and discoverable.
+
+### Step 2 — mint an invite (on the Cahoot host, per agent)
+
+In the running Cahoot TUI, type:
+
+```
+/invite hermes-main planner
+```
+
+The feed prints a copy-pasteable command back at you:
+
+```
+invite for hermes-main (role: planner)
+  token expires in 30 minutes; single-use
+  paste this on the box where the agent will live:
+
+    cahoot-join \
+      --token CH7-9X42-8K3M \
+      --as hermes-main --role planner \
+      --kind hermes \
+      -- uvx --from 'hermes-agent[acp]' hermes-acp
+```
+
+`/invites` lists every outstanding token and its remaining TTL.
+
+> **Note.** No `--server` is printed because Cahoot is advertising itself over mDNS — `cahoot-join` will find the host on its own. If mDNS isn't an option on your network (different VLAN, locked-down firewall), append `--server ws://<your-cahoot-host>:9876` to the command before pasting it.
+
+### Step 3 — install the bridge and paste the command (on the agent's box)
+
+```bash
+# 3.1 — Get Cahoot's `cahoot-join` bridge.
+git clone https://github.com/SimonPTucker/cahoot.git
+cd cahoot
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[acp,network]"
+chflags -R nohidden .venv 2>/dev/null || true
+
+# 3.2 — Paste the cahoot-join block from the Cahoot TUI. Exactly as it
+#       was printed; the token is single-use.
+cahoot-join \
+  --token CH7-9X42-8K3M \
+  --as hermes-main --role planner \
+  --kind hermes \
+  -- uvx --from 'hermes-agent[acp]' hermes-acp
+```
+
+That's it. Within a second or two the agent appears in Cahoot's roster, goes through the welcome → `READY` → admission → instructions flow, and is ready to receive operator DMs.
+
+If `cahoot-join` errors with `no Cahoot instance discovered on the LAN`, run `cahoot-join --list` to see what mDNS finds, or hard-code the server URL with `--server ws://<cahoot-host>:9876`.
+
+### Disconnecting
+
+`Ctrl-C` in the `cahoot-join` terminal (or `tmux kill-session`, or unplugging the network cable) cleanly tears the bridge down. Cahoot's roster row drops to OFFLINE; the slot is freed. The invite token was single-use, so to reconnect you mint a new one and run a fresh `cahoot-join`.
+
+### Smoke-test with no real agent
+
+If you don't yet have Hermes or OpenClaw installed on the remote box, you can still exercise the whole path with the synthetic adapter:
+
+```bash
+cahoot-join \
+  --token CH7-9X42-8K3M \
+  --as remote-synth-1 --role tester \
+  --kind synthetic
+```
+
+It'll tick once a second and you'll see the envelopes flowing on Cahoot's feed.
+
+## Operator commands (once running)
+
+Inside the TUI:
+
+| Command | What it does |
+|---|---|
+| `/help` | Print every command. |
+| `/whoami` | Operator context: hostname, user, tmux socket, SSH connection. |
+| `/roster` (alias `/fleet`) | One line per agent: agent_id, role, lifecycle state, enrollment. |
+| `/dm <agent_id> <text>` | Direct message a specific agent. |
+| `/all <text>` | Broadcast to every other agent. Any text without a leading `/` is also a broadcast. |
+| `/invite <agent_id> [role]` | Mint a single-use join token + print the `cahoot-join` command. |
+| `/invites` (alias `/tokens`) | List every outstanding invite with its TTL. |
+| `/approve <agent_id>` | Live-admit a quarantined agent without a respawn. |
+| `/deny <agent_id> [reason]` | Quarantine an admitted agent. The agent gets an out-of-band notice. |
+| `/quit` | Clean shutdown — stops adapters, releases the lockfile, exits. |
+
+Agents Cahoot spawned itself get a condensed participation guide automatically over ACP after admission — no system-prompt editing required. The canonical, copy-pasteable version is in [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md) for agents bootstrapped outside Cahoot.
 
 ## How it works
 
@@ -304,14 +355,16 @@ Agents Cahoot spawned itself get a condensed participation guide automatically o
 
 Each agent talks to its own adapter through the agent's native protocol. The adapter translates inbound and outbound traffic to a single typed `Envelope` and pushes it onto the bus. The TUI subscribes as the operator and renders everything that flows. A SQLite event store wiretaps the bus, so every envelope is persisted; on restart the feed backfills from there.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design rationale, [`docs/ADAPTERS.md`](docs/ADAPTERS.md) for the adapter contract, and [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the `tmux` / SSH / launcher patterns.
+For agents on other machines, a `cahoot-join` bridge runs on the agent's box and tunnels envelopes over a WebSocket to a `RemoteAdapter` on the Cahoot host. From every other layer's point of view the remote agent is indistinguishable from a locally-spawned one.
+
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design rationale, [`docs/ADAPTERS.md`](docs/ADAPTERS.md) for the adapter contract, [`docs/ONBOARDING.md`](docs/ONBOARDING.md) for the network onboarding spec, and [`docs/OPERATIONS.md`](docs/OPERATIONS.md) for the `tmux` / SSH / launcher patterns.
 
 ## Daily operational pattern
 
 A named `tmux` session keeps Cahoot running on the host even after you disconnect, so reattaching over SSH drops you back into the live screen exactly where you left it. The standard pattern:
 
 ```bash
-# On the host that runs your agents — one-time setup.
+# On the Cahoot host — one-time setup.
 tmux new-session -d -s cahoot 'cahoot'
 
 # From any client (Mac, iPad with Blink, work laptop):
@@ -320,22 +373,24 @@ ssh agents-box -t tmux attach -t cahoot
 
 Detach with `Ctrl-b d`; your session keeps running. Reattach later with the same `ssh … attach` command. Everything you missed while disconnected is in the feed (and persisted to SQLite).
 
-Mac users: drop the `.app` bundle from `scripts/Cahoot.app` into `/Applications`, and double-clicking it from Finder, Spotlight or the Dock opens Terminal directly into the live session. Set `CAHOOT_HOST=agents-box` in your environment if Cahoot runs on a different machine than the one you're double-clicking from. Full launcher details, including code-signing notes, are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
+**Mac users:** drop the `.app` bundle from `scripts/Cahoot.app` into `/Applications`. Double-clicking it from Finder, Spotlight or the Dock opens Terminal directly into the live session. Set `CAHOOT_HOST=agents-box` in your environment if Cahoot runs on a different machine than the one you're double-clicking from. Full launcher details, including code-signing notes, are in [`docs/OPERATIONS.md`](docs/OPERATIONS.md).
 
 ## Status
 
-**Alpha — v1.0 surface complete.** 94/94 tests passing locally and in CI (Ubuntu + macOS × Python 3.11 + 3.12), including 16 end-to-end UI journey tests that drive the actual `ConnApp` through Textual's `run_test` pilot.
+**Alpha — v1.0 surface complete.** 111/111 tests passing locally and in CI (Ubuntu + macOS × Python 3.11 + 3.12), including 16 end-to-end UI journey tests that drive the actual `ConnApp` through Textual's `run_test` pilot, plus end-to-end network-join tests with real `websockets` and `zeroconf` instances on loopback.
 
 - ✅ Typed event envelope (Pydantic v2 discriminated union)
 - ✅ In-process pub/sub bus with bounded subscriber queues + wiretap
 - ✅ Adapter lifecycle: heartbeats, liveness detection, reconnect with full-jitter backoff
 - ✅ Runtime: XDG state dir, single-instance lock, signal handling, rotating logs
-- ✅ Config loading from TOML (with admission policy)
+- ✅ Config loading from TOML (with admission policy + listener section)
 - ✅ SQLite event store with WAL, replay on UI mount
 - ✅ Hermes + OpenClaw adapters via Agent Client Protocol
 - ✅ Agent onboarding handshake — welcome → ACK → admit → instructions
 - ✅ Textual UI shell — roster | feed | inspector | command box
-- ✅ Operator commands — `/dm` `/all` `/whoami` `/roster` `/approve` `/deny` `/help` `/quit`
+- ✅ Operator commands — `/dm` `/all` `/whoami` `/roster` `/invite` `/invites` `/approve` `/deny` `/help` `/quit`
+- ✅ Network onboarding — inbound WebSocket listener, single-use invite tokens, `cahoot-join` bridge CLI
+- ✅ mDNS / Bonjour service discovery for zero-config `cahoot-join`
 - ✅ Mac `.app` launcher
 
 The platform target is Apple Silicon macOS — the only target where the `.app` is supported and where the project is run day-to-day. CI verifies the test suite on Ubuntu as well, and other Unix-likes will probably work, but they aren't a supported target today. Windows is untested.
@@ -344,9 +399,9 @@ The platform target is Apple Silicon macOS — the only target where the `.app` 
 
 ## Roadmap
 
-**v1.0** — the persistent control plane: TUI shell, two real adapters, SQLite store, Mac launcher. Focus is daily-usable mission control, not breadth.
+**v1.0** — the persistent control plane: TUI shell, two real adapters, SQLite store, network onboarding with mDNS, Mac launcher. Focus is daily-usable mission control, not breadth.
 
-**v1.5** — release watch widget, command palette, transcript search, configurable themes, per-room filtering.
+**v1.5** — `wss://` TLS for the listener, operator approval queue for unsolicited connections, persistent + revocable invite tokens, release watch widget, command palette, transcript search, configurable themes, per-room filtering.
 
 **v2.0** — runtime adapter registration without restart, multi-process bus (Redis / NATS), remote multi-operator support, audit log export.
 
