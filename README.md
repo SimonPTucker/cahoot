@@ -82,28 +82,64 @@ You can always start with the first path and move up — nothing in your config 
 ## 1. Install Cahoot
 
 > **On:** the Mac that will host Cahoot — typically your always-on Mac mini.
-> **Prereqs:** Apple Silicon macOS, Python 3.11+ ([downloads](https://www.python.org/downloads/)), tmux 3.0+ (`brew install tmux`). Tested on macOS 14/15. Ubuntu is covered by CI; other Unix-likes will probably work; Windows is untested.
+> **Prereqs:** Apple Silicon macOS, Python 3.11+. The installer handles the rest (it installs `uv` and `tmux` if missing).
+
+One line:
 
 ```bash
-# 1. Clone the repo.
-git clone https://github.com/SimonPTucker/cahoot.git
-cd cahoot
-
-# 2. Create a virtualenv and install Cahoot in editable mode.
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-
-# 3. (macOS + Python 3.13 only) Un-hide the editable install so the
-#    `cahoot` CLI can import itself. See CONTRIBUTING.md for the
-#    underlying macOS quirk.
-chflags -R nohidden .venv 2>/dev/null || true
-
-# 4. Sanity check — run the test suite. All 111 should pass.
-pytest -q
+curl -fsSL https://raw.githubusercontent.com/SimonPTucker/cahoot/main/scripts/install-server.sh | bash
 ```
 
-If `pytest -q` reports `111 passed`, every layer (bus, store, adapter lifecycle, UI, listener, discovery) is wired correctly. Carry on.
+The script:
+
+1. Checks Python 3.11+ is on PATH (Hermes/OpenClaw require it too).
+2. Installs [Astral's `uv`](https://docs.astral.sh/uv/) if missing.
+3. Installs `tmux 3.0+` via Homebrew if missing.
+4. Installs the `cahoot` + `cahoot-join` CLIs via `uv tool install` straight from git.
+5. Seeds `~/.config/cahoot/cahoot.toml` with a working synthetic-agent example (only if you don't already have one).
+6. On macOS, offers to drop `Cahoot.app` into `/Applications` for one-click launch.
+
+When it finishes, `cahoot --help` works, run `cahoot` to launch.
+
+**Re-running the script is safe** — it picks up any newer code, won't overwrite your config, and won't install the `.app` twice.
+
+<details><summary><b>Prefer not to pipe curl to bash? Equivalent manual steps.</b></summary>
+
+```bash
+# 1. Inspect the installer first, then run it.
+curl -fsSL -o install-server.sh \
+  https://raw.githubusercontent.com/SimonPTucker/cahoot/main/scripts/install-server.sh
+less install-server.sh
+bash install-server.sh
+```
+
+Or skip the script entirely and run the `uv` command it would have run:
+
+```bash
+brew install tmux                # if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv tool install "cahoot[acp,network] @ git+https://github.com/SimonPTucker/cahoot.git"
+mkdir -p ~/.config/cahoot
+curl -fsSL https://raw.githubusercontent.com/SimonPTucker/cahoot/main/docs/examples/cahoot.toml \
+  > ~/.config/cahoot/cahoot.toml
+```
+
+</details>
+
+<details><summary><b>For contributors — clone + editable install instead.</b></summary>
+
+If you're hacking on Cahoot itself, install in editable mode against a clone:
+
+```bash
+git clone https://github.com/SimonPTucker/cahoot.git
+cd cahoot
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,acp,network]"
+chflags -R nohidden .venv 2>/dev/null || true   # macOS + py3.13 quirk
+pytest -q                                       # expect 111 passed
+```
+
+</details>
 
 ## 2. First launch with a fake agent
 
@@ -134,22 +170,17 @@ When you're ready for real agents, choose **3a** (same machine) or **3b** (acros
 
 ### Install the agent runtimes you'll use
 
+You only need the runtimes for the agent kinds you'll actually configure below. The Cahoot install from §1 already includes the ACP layer, so there's nothing extra to add on the Cahoot side.
+
 ```bash
 # Hermes — uses uv/uvx so Cahoot can pin a specific version.
+# uv is already on PATH if you ran install-server.sh; check with: command -v uvx
+# Otherwise:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # OpenClaw — its CLI handles its own onboarding (gateway URL, token, etc.).
-brew install openclaw
-openclaw onboard          # one-time interactive setup
-```
-
-You only need the runtimes for the agent kinds you'll actually use.
-
-### Install Cahoot's ACP extra
-
-```bash
-pip install -e ".[acp]"
-chflags -R nohidden .venv 2>/dev/null || true
+brew install openclaw       # or your distribution's path
+openclaw onboard            # one-time interactive setup
 ```
 
 ### Edit `~/.config/cahoot/cahoot.toml`
@@ -276,16 +307,22 @@ invite for hermes-main (role: planner)
 
 ### Step 3 — install the bridge and paste the command (on the agent's box)
 
-```bash
-# 3.1 — Get Cahoot's `cahoot-join` bridge.
-git clone https://github.com/SimonPTucker/cahoot.git
-cd cahoot
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[acp,network]"
-chflags -R nohidden .venv 2>/dev/null || true
+The agent box is whatever machine your Hermes / OpenClaw runs on — a workstation, a GPU box, another Mac. Run the bridge installer once on each such box:
 
-# 3.2 — Paste the cahoot-join block from the Cahoot TUI. Exactly as it
-#       was printed; the token is single-use.
+```bash
+curl -fsSL https://raw.githubusercontent.com/SimonPTucker/cahoot/main/scripts/install-agent.sh | bash
+```
+
+That installer:
+
+1. Checks Python 3.11+.
+2. Installs `uv` if missing.
+3. Installs the `cahoot-join` CLI via `uv tool install` from git.
+4. Tells you whether `uvx` (for Hermes) and `openclaw` (for OpenClaw) are installed, with install hints if not.
+
+Then paste the `cahoot-join` command Cahoot printed in Step 2:
+
+```bash
 cahoot-join \
   --token CH7-9X42-8K3M \
   --as hermes-main --role planner \
@@ -293,7 +330,7 @@ cahoot-join \
   -- uvx --from 'hermes-agent[acp]' hermes-acp
 ```
 
-That's it. Within a second or two the agent appears in Cahoot's roster, goes through the welcome → `READY` → admission → instructions flow, and is ready to receive operator DMs.
+Within a second or two the agent appears in Cahoot's roster, goes through the welcome → `READY` → admission → instructions flow, and is ready to receive operator DMs.
 
 If `cahoot-join` errors with `no Cahoot instance discovered on the LAN`, run `cahoot-join --list` to see what mDNS finds, or hard-code the server URL with `--server ws://<cahoot-host>:9876`.
 
