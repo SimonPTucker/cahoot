@@ -2,23 +2,90 @@
 #
 # Cahoot.app launcher — opens Terminal attached to the running tmux session.
 #
-# Customise behaviour via environment (or `launchctl setenv`):
+# Auto-detects the cahoot CLI in this order:
+#   1. $CAHOOT_CMD env var (explicit override).
+#   2. `cahoot` on the user's PATH.
+#   3. A development checkout — looks for a venv next to the repo we live
+#      in (..//..//..//.. relative to this script, since we're inside
+#      scripts/Cahoot.app/Contents/MacOS/).
+#   4. Common venv paths under $HOME/cahoot/ and Documents/LIVE_DEVELOPMENT/.
+#
+# If none of those work, shows a friendly dialog explaining how to install.
+#
+# Other env knobs:
 #   CAHOOT_HOST     — host to SSH into. Empty/unset = local.
 #   CAHOOT_SESSION  — tmux session name. Default: cahoot.
-#   CAHOOT_CMD      — command tmux should run. Default: cahoot.
-#                     Use `python -m cahoot` for a dev checkout.
 #
 # No code signing needed for personal use. Gatekeeper will warn on the first
 # launch; right-click → Open dismisses it permanently.
 
 set -euo pipefail
 
-HOST="${CAHOOT_HOST:-}"
-SESSION="${CAHOOT_SESSION:-cahoot}"
-CMD="${CAHOOT_CMD:-cahoot}"
+# Where is *this* script on disk? Used to find a colocated venv.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# scripts/Cahoot.app/Contents/MacOS → repo root is 4 levels up.
+MAYBE_REPO="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 
-# `new-session -A` attaches if the session exists, otherwise creates and runs.
-TMUX_CMD="tmux new-session -A -s ${SESSION} '${CMD}'"
+_die() {
+    osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with icon stop with title \"Cahoot\""
+    exit 1
+}
+
+# Resolve cahoot CLI.
+CMD=""
+if [[ -n "${CAHOOT_CMD:-}" ]]; then
+    CMD="${CAHOOT_CMD}"
+elif command -v cahoot >/dev/null 2>&1; then
+    CMD="cahoot"
+else
+    for candidate in \
+        "${MAYBE_REPO}/.venv/bin/cahoot" \
+        "${HOME}/Documents/LIVE_DEVELOPMENT/cahoot/.venv/bin/cahoot" \
+        "${HOME}/cahoot/.venv/bin/cahoot" \
+        "${HOME}/.local/bin/cahoot"; do
+        if [[ -x "${candidate}" ]]; then
+            # The venv-installed CLI relies on an editable .pth file that
+            # macOS marks hidden on Python 3.13+. Bypass via `python -m cahoot`
+            # with PYTHONPATH set to the repo root so import resolution works
+            # without touching .pth.
+            venv_dir="$(cd "$(dirname "${candidate}")/.." && pwd)"
+            venv_py="${venv_dir}/bin/python3"
+            # Repo root is parent of the venv dir.
+            repo_root="$(cd "${venv_dir}/.." && pwd)"
+            if [[ -x "${venv_py}" ]]; then
+                CMD="env PYTHONPATH=${repo_root} ${venv_py} -m cahoot"
+            else
+                CMD="${candidate}"
+            fi
+            break
+        fi
+    done
+fi
+
+if [[ -z "${CMD}" ]]; then
+    _die "Cahoot CLI not found. Install it with:\n\n    pipx install cahoot\n\nor set CAHOOT_CMD to point at your installation."
+fi
+
+# Resolve tmux.
+TMUX_BIN=""
+if command -v tmux >/dev/null 2>&1; then
+    TMUX_BIN="tmux"
+elif [[ -x "/opt/homebrew/bin/tmux" ]]; then
+    TMUX_BIN="/opt/homebrew/bin/tmux"
+elif [[ -x "/usr/local/bin/tmux" ]]; then
+    TMUX_BIN="/usr/local/bin/tmux"
+else
+    _die "tmux is required but not installed.\n\nInstall with:    brew install tmux"
+fi
+
+SESSION="${CAHOOT_SESSION:-cahoot}"
+HOST="${CAHOOT_HOST:-}"
+
+# new-session -A attaches if it exists, otherwise creates and runs.
+# Single-quote CMD so the inner shell args stay literal even though we then
+# wrap the whole thing in AppleScript's double quotes. CMD never contains
+# single quotes in any of our resolution paths, so this is safe.
+TMUX_CMD="${TMUX_BIN} new-session -A -s ${SESSION} '${CMD}'"
 
 if [[ -n "${HOST}" ]]; then
     DO_SCRIPT="ssh -t ${HOST} \"${TMUX_CMD}\""
@@ -26,9 +93,13 @@ else
     DO_SCRIPT="${TMUX_CMD}"
 fi
 
+# Escape any backslashes / double quotes for AppleScript string syntax.
+APPLE_SAFE="${DO_SCRIPT//\\/\\\\}"
+APPLE_SAFE="${APPLE_SAFE//\"/\\\"}"
+
 osascript <<EOF
 tell application "Terminal"
     activate
-    do script "${DO_SCRIPT}"
+    do script "${APPLE_SAFE}"
 end tell
 EOF
