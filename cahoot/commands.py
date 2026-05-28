@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from .adapter import AgentAdapter
 from .bus import Bus
 from .envelope import chat
+from .invites import InviteRegistry
 from .onboarding import EnrollmentState
 from .runtime import session_context
 
@@ -43,6 +44,8 @@ __all__ = [
     "Deny",
     "DirectMessage",
     "Help",
+    "Invite",
+    "Invites",
     "ParsedInput",
     "Quit",
     "Roster",
@@ -92,6 +95,17 @@ class Roster:
 
 
 @dataclass(frozen=True)
+class Invite:
+    agent_id: str
+    role: str = "agent"
+
+
+@dataclass(frozen=True)
+class Invites:
+    pass
+
+
+@dataclass(frozen=True)
 class Help:
     pass
 
@@ -106,7 +120,9 @@ class ParseError:
     message: str
 
 
-Command = Broadcast | DirectMessage | Whoami | Approve | Deny | Roster | Help | Quit
+Command = (
+    Broadcast | DirectMessage | Whoami | Approve | Deny | Roster | Help | Quit | Invite | Invites
+)
 ParsedInput = Command | ParseError
 
 
@@ -160,6 +176,14 @@ def parse(raw: str) -> ParsedInput:
             return ParseError("/deny <agent_id> [reason]")
         reason = parts[1] if len(parts) > 1 else None
         return Deny(agent_id=parts[0], reason=reason)
+    if verb == "invite":
+        parts = arg.split(maxsplit=1)
+        if not parts or not parts[0]:
+            return ParseError("/invite <agent_id> [role]")
+        role = parts[1].strip() if len(parts) > 1 else "agent"
+        return Invite(agent_id=parts[0].strip(), role=role)
+    if verb in {"invites", "tokens"}:
+        return Invites()
 
     return ParseError(f"unknown command: /{verb} (try /help)")
 
@@ -188,6 +212,8 @@ _HELP_TEXT = (
     "  /roster | /fleet        list agents + enrollment state\n"
     "  /approve <agent_id>     admit a quarantined agent\n"
     "  /deny <agent_id> [why]  quarantine an admitted agent\n"
+    "  /invite <id> [role]     mint a join token for a remote agent\n"
+    "  /invites                list outstanding invite tokens\n"
     "  /help                   this help\n"
     "  /quit                   clean shutdown"
 )
@@ -200,6 +226,8 @@ async def execute(
     adapters: dict[str, AgentAdapter],
     operator_id: str = "operator",
     room: str = "ops",
+    invites: InviteRegistry | None = None,
+    server_url: str | None = None,
 ) -> CommandResult:
     """Apply ``parsed`` to the live bus / adapters.
 
@@ -264,6 +292,48 @@ async def execute(
             tail = f" — {parsed.reason}" if parsed.reason else ""
             return CommandResult(feedback=f"⛔ quarantined {parsed.agent_id}{tail}")
         return CommandResult(feedback=f"= {parsed.agent_id} already quarantined")
+
+    if isinstance(parsed, Invite):
+        if invites is None or server_url is None:
+            return CommandResult(
+                feedback=(
+                    "⚠ network listener disabled. Set "
+                    "[cahoot.listener].enabled = true in cahoot.toml to "
+                    "issue invites."
+                )
+            )
+        inv = invites.mint(agent_id=parsed.agent_id, role=parsed.role, issued_by=operator_id)
+        ttl_min = int((inv.expires_at - inv.created_at) / 60)
+        block = (
+            f"invite for {inv.agent_id} (role: {inv.role})\n"
+            f"  token expires in {ttl_min} minutes; single-use\n"
+            f"  paste this on the box where the agent will live:\n"
+            f"\n"
+            f"    cahoot-join \\\n"
+            f"      --server {server_url} \\\n"
+            f"      --token {inv.token} \\\n"
+            f"      --as {inv.agent_id} --role {inv.role} \\\n"
+            f"      --kind hermes \\\n"
+            f"      -- uvx --from 'hermes-agent[acp]' hermes-acp"
+        )
+        return CommandResult(feedback=block)
+
+    if isinstance(parsed, Invites):
+        if invites is None:
+            return CommandResult(feedback="invites: (listener disabled)")
+        outstanding = invites.outstanding()
+        if not outstanding:
+            return CommandResult(feedback="invites: (none outstanding)")
+        rows = []
+        import time as _time
+
+        now = _time.time()
+        for inv in outstanding:
+            remaining_min = max(0, int((inv.expires_at - now) / 60))
+            rows.append(
+                f"  {inv.token}  → {inv.agent_id} ({inv.role})  expires in {remaining_min}m"
+            )
+        return CommandResult(feedback="outstanding invites:\n" + "\n".join(rows))
 
     # Exhaustive — mypy verifies all variants are covered above.
     return CommandResult(feedback=f"⚠ unhandled command: {parsed!r}")  # type: ignore[unreachable]

@@ -40,6 +40,10 @@ dependencies = [
 acp = [
     "agent-client-protocol>=0.5",
 ]
+# Network onboarding: the WebSocket listener + `cahoot-join` bridge CLI.
+network = [
+    "websockets>=12.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -48,10 +52,12 @@ dev = [
     "mypy>=1.10",
     "pre-commit>=3.7",
     "agent-client-protocol>=0.5",  # so adapter tests can import acp
+    "websockets>=12.0",            # so listener tests can spin a server
 ]
 
 [project.scripts]
 cahoot = "cahoot.__main__:main"
+cahoot-join = "cahoot.cahoot_join:main"
 
 [project.urls]
 Homepage = "https://github.com/SimonPTucker/cahoot"

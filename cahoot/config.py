@@ -26,9 +26,20 @@ __all__ = [
     "AgentSpec",
     "CahootConfig",
     "ConfigError",
+    "ListenerConfig",
     "find_config",
     "load_config",
 ]
+
+
+@dataclass(frozen=True)
+class ListenerConfig:
+    """Optional WebSocket listener for inbound `cahoot-join` connections."""
+
+    enabled: bool = False
+    bind: str = "0.0.0.0"
+    port: int = 9876
+    invite_ttl_s: int = 30 * 60
 
 
 class ConfigError(ValueError):
@@ -56,6 +67,7 @@ class CahootConfig:
     log_level: str = "INFO"
     agents: tuple[AgentSpec, ...] = ()
     admission: AdmissionPolicy = field(default_factory=AdmissionPolicy)
+    listener: ListenerConfig = field(default_factory=ListenerConfig)
     source_path: Path | None = None
 
 
@@ -131,14 +143,34 @@ def _parse(raw: dict[str, Any], *, source: Path) -> CahootConfig:
         )
 
     admission = _parse_admission(raw.get("cahoot", {}).get("admission", {}), agents)
+    listener = _parse_listener(raw.get("cahoot", {}).get("listener", {}))
 
     return CahootConfig(
         room=room,
         log_level=log_level,
         agents=tuple(agents),
         admission=admission,
+        listener=listener,
         source_path=source,
     )
+
+
+def _parse_listener(section: Any) -> ListenerConfig:
+    if not section:
+        return ListenerConfig()
+    if not isinstance(section, dict):
+        raise ConfigError("[cahoot.listener] must be a table")
+    enabled = bool(section.get("enabled", False))
+    bind = section.get("bind", "0.0.0.0")
+    port = section.get("port", 9876)
+    ttl = section.get("invite_ttl_s", 30 * 60)
+    if not isinstance(bind, str):
+        raise ConfigError("[cahoot.listener].bind must be a string")
+    if not isinstance(port, int) or not 0 < port < 65536:
+        raise ConfigError("[cahoot.listener].port must be a port number")
+    if not isinstance(ttl, int) or ttl <= 0:
+        raise ConfigError("[cahoot.listener].invite_ttl_s must be a positive int")
+    return ListenerConfig(enabled=enabled, bind=bind, port=port, invite_ttl_s=ttl)
 
 
 def _parse_admission(section: Any, agents: list[AgentSpec]) -> AdmissionPolicy:

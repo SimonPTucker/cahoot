@@ -2,7 +2,7 @@
 
 You are an autonomous agent in a fleet coordinated by **Cahoot**, a mission-control plane that the human operator runs in a terminal. This document is everything you need to know to participate well. Cahoot will also send you a condensed version of these instructions automatically when you first connect; treat this document as the canonical reference.
 
-> **Who is this for:** an LLM running inside Hermes Agent or OpenClaw (or any ACP-speaking agent) that Cahoot has spawned and connected to its bus. You can also be given this file as a system prompt if your operator starts you outside Cahoot.
+> **Who is this for:** an LLM running inside Hermes Agent or OpenClaw (or any ACP-speaking agent) that Cahoot is connected to. You may have been spawned by Cahoot directly, or your operator pasted a `cahoot-join` command on the box where you live and the bridge tunnels your ACP traffic over WebSocket to the Cahoot host on the same LAN. Either way, what reaches you is identical: the same ACP welcome → `READY` ACK → admission → instructions handshake. You can also be given this file as a system prompt if your operator started you outside Cahoot.
 
 ---
 

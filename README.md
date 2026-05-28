@@ -95,6 +95,75 @@ In about two seconds you should see the four-region dashboard: a roster on the l
 
 If you see all that, every layer — bus, store, adapter lifecycle, UI — is wired correctly. The next section swaps the synthetic agent for real ones.
 
+## Connecting agents from elsewhere on the LAN
+
+You can run agents on the same Mac as Cahoot — the next section walks through that — but most real fleets have the agent processes spread across several machines on the same LAN. The Mac mini sits in the cupboard running Cahoot; the agents run on a workstation, a beefier GPU box, an old laptop. Cahoot has an **inbound onboarding mode** for that case.
+
+The flow has three steps:
+
+**Step 1 — turn on the listener.** Add this to your `~/.config/cahoot/cahoot.toml` and restart Cahoot:
+
+```toml
+[cahoot.listener]
+enabled = true     # listen for inbound cahoot-join connections
+bind    = "0.0.0.0"  # accept from any interface on the LAN
+port    = 9876
+invite_ttl_s = 1800  # tokens expire after 30 minutes
+```
+
+Cahoot logs `listener: announcing ws://<your-host>:9876 for invites` on startup.
+
+**Step 2 — mint an invite from the TUI.** Type:
+
+```
+/invite hermes-main planner
+```
+
+Cahoot prints a copy-pasteable block right in the feed:
+
+```
+invite for hermes-main (role: planner)
+  token expires in 30 minutes; single-use
+  paste this on the box where the agent will live:
+
+    cahoot-join \
+      --server ws://my-mac-mini.local:9876 \
+      --token CH7-9X42-8K3M \
+      --as hermes-main --role planner \
+      --kind hermes \
+      -- uvx --from 'hermes-agent[acp]' hermes-acp
+```
+
+`/invites` lists everything outstanding; tokens are single-use and time-bounded.
+
+**Step 3 — run that command on the agent's box.** On the workstation (or whichever machine the agent will actually live on), install Cahoot with the network extra and paste the command:
+
+```bash
+pip install -e ".[acp,network]"      # acp for hermes/openclaw, network for the bridge
+cahoot-join \
+  --server ws://my-mac-mini.local:9876 \
+  --token CH7-9X42-8K3M \
+  --as hermes-main --role planner \
+  --kind hermes \
+  -- uvx --from 'hermes-agent[acp]' hermes-acp
+```
+
+`cahoot-join` spawns the agent locally on that machine, opens a WebSocket to Cahoot, validates the token, and bridges the two. From Cahoot's point of view the agent appears in the roster, goes through the standard welcome → `READY` → admission → instructions handshake, and accepts `/dm`, `/approve`, `/deny` exactly like a locally-spawned one. `Ctrl-C` on the agent's box (or `tmux kill-session`, or unplugging the network cable) cleanly disconnects it; the slot in Cahoot frees up and the operator sees a status drop.
+
+The wire format is a tiny JSON-over-WebSocket protocol with one frame per envelope, documented in [`cahoot/adapters/remote.py`](cahoot/adapters/remote.py). There's **no TLS in v1** — the trust boundary is "your LAN", and the token plus single-use semantics gate authentication. v1.5 will add `wss://` + a self-signed cert and an operator-driven approval queue.
+
+If you don't yet have a real agent, you can still test the whole inbound path with the synthetic adapter:
+
+```bash
+cahoot-join \
+  --server ws://my-mac-mini.local:9876 \
+  --token CH7-9X42-8K3M \
+  --as remote-synth-1 --role tester \
+  --kind synthetic
+```
+
+The next section is the alternative path — letting Cahoot spawn the agent locally on its own machine. Use that when you only have one box and don't want a separate `cahoot-join` process.
+
 ## Adding real agents — Hermes and OpenClaw
 
 Both **Hermes Agent** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) and **OpenClaw** ([docs.openclaw.ai](https://docs.openclaw.ai)) natively expose [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) — JSON-RPC over stdio, the same protocol an IDE like Zed uses to drive them. Cahoot speaks the canonical client side via the official `agent-client-protocol` Python package, so there's no custom protocol or shim to maintain.

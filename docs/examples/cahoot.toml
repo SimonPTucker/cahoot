@@ -37,6 +37,18 @@ log_level = "INFO"
 # allowed_ids = []
 
 # -----------------------------------------------------------------------------
+# Optional network listener. Enables /invite and accepts inbound
+# `cahoot-join` connections from other machines on the LAN. Without this
+# block the listener stays off; the only way to add agents is via
+# [[agents]] blocks below.
+# -----------------------------------------------------------------------------
+# [cahoot.listener]
+# enabled = true
+# bind = "0.0.0.0"     # 0.0.0.0 = LAN-wide; use 127.0.0.1 to lock to localhost
+# port = 9876
+# invite_ttl_s = 1800  # token lifetime in seconds (default 30 min)
+
+# -----------------------------------------------------------------------------
 # Synthetic agent for testing the dashboard before real adapters land.
 # Safe to leave in; useful for verifying the UI keeps rendering even when no
 # real agents are configured.

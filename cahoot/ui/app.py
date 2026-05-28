@@ -34,6 +34,7 @@ from .roster import RosterWidget
 
 if TYPE_CHECKING:
     from ..adapter import AgentAdapter
+    from ..invites import InviteRegistry
     from ..store import EventStore
 
 __all__ = ["ConnApp"]
@@ -90,6 +91,8 @@ class ConnApp(App[int]):
         store: EventStore | None = None,
         room: str = "ops",
         stop_event: asyncio.Event | None = None,
+        invites: InviteRegistry | None = None,
+        server_url: str | None = None,
     ) -> None:
         super().__init__()
         self._bus = bus
@@ -97,6 +100,8 @@ class ConnApp(App[int]):
         self._store = store
         self._room = room
         self._stop = stop_event or asyncio.Event()
+        self._invites = invites
+        self._server_url = server_url
         self._roster = RosterWidget()
         self._feed = FeedWidget()
         self._inspector = InspectorWidget()
@@ -173,6 +178,8 @@ class ConnApp(App[int]):
             bus=self._bus,
             adapters=self._adapters,
             room=self._room,
+            invites=self._invites,
+            server_url=self._server_url,
         )
         # Surface the feedback into the feed as an operator chat so it
         # persists alongside agent traffic.

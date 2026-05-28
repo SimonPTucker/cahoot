@@ -23,6 +23,8 @@ from .adapters import REGISTRY
 from .banner import print_banner
 from .bus import InMemoryBus
 from .config import load_config
+from .invites import InviteRegistry
+from .listener import run_listener
 from .runtime import (
     AlreadyRunning,
     db_path,
@@ -99,6 +101,32 @@ async def _amain(no_ui: bool, no_store: bool, cfg_path: Path | None) -> None:
         asyncio.create_task(a.run(), name=f"adapter.{a.agent_id}") for a in adapters_list
     ]
 
+    # Network listener for inbound `cahoot-join` connections (Phase B).
+    invites = InviteRegistry(ttl_s=cfg.listener.invite_ttl_s)
+    remote_adapter_tasks: dict[str, asyncio.Task[None]] = {}
+    listener_task: asyncio.Task[None] | None = None
+    server_url: str | None = None
+    if cfg.listener.enabled:
+        # Surface a friendly URL the operator can paste alongside an invite.
+        import socket as _socket
+
+        host_hint = _socket.gethostname()
+        server_url = f"ws://{host_hint}:{cfg.listener.port}"
+        listener_task = asyncio.create_task(
+            run_listener(
+                bus=bus,
+                invites=invites,
+                adapters=adapters,
+                adapter_tasks=remote_adapter_tasks,
+                stop=stop,
+                bind=cfg.listener.bind,
+                port=cfg.listener.port,
+                room=cfg.room,
+            ),
+            name="listener",
+        )
+        log.info("listener: announcing %s for invites", server_url)
+
     if no_ui:
         # Headless monitor: drain the operator queue to the log until stop.
         op_queue = bus.subscribe("operator")
@@ -125,7 +153,15 @@ async def _amain(no_ui: bool, no_store: bool, cfg_path: Path | None) -> None:
         # Lazy import so headless installs without textual still work.
         from .ui import ConnApp
 
-        app = ConnApp(bus, adapters, store=store, room=cfg.room, stop_event=stop)
+        app = ConnApp(
+            bus,
+            adapters,
+            store=store,
+            room=cfg.room,
+            stop_event=stop,
+            invites=invites,
+            server_url=server_url,
+        )
         ui_task = asyncio.create_task(app.run_async(), name="ui")
         # Either signal handler or /quit-from-UI flips `stop`.
         await stop.wait()
@@ -138,7 +174,16 @@ async def _amain(no_ui: bool, no_store: bool, cfg_path: Path | None) -> None:
 
     for a in adapters_list:
         await a.stop()
+    # Stop any remote (inbound) adapters too.
+    for ra in list(adapters.values()):
+        with __import__("contextlib").suppress(Exception):
+            await ra.stop()
     await asyncio.gather(*adapter_tasks, return_exceptions=True)
+    if remote_adapter_tasks:
+        await asyncio.gather(*remote_adapter_tasks.values(), return_exceptions=True)
+    if listener_task is not None:
+        listener_task.cancel()
+        await asyncio.gather(listener_task, return_exceptions=True)
     if store_drain is not None:
         store_drain.cancel()
         await asyncio.gather(store_drain, return_exceptions=True)
