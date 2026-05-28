@@ -83,7 +83,96 @@ tail -F ~/.local/state/cahoot/cahoot.log
 
 You should see status transitions, chat lines, heartbeats, and metric events streaming into the log. That confirms the bus, adapter lifecycle, and runtime are all wired correctly.
 
-The Textual UI is the next build phase — see [`CLAUDE.md`](CLAUDE.md) for the explicit task list.
+## Adding real agents — Hermes and OpenClaw
+
+Both **Hermes Agent** ([NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent)) and **OpenClaw** ([docs.openclaw.ai](https://docs.openclaw.ai)) natively expose [Agent Client Protocol](https://github.com/zed-industries/agent-client-protocol) (JSON-RPC over stdio). Cahoot drives them as ACP clients via the canonical `agent-client-protocol` Python package — no custom protocol or shim required.
+
+### 1. Install the agent runtimes
+
+```bash
+# Hermes — installed via uv/uvx so Cahoot can pin a specific build
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# OpenClaw — its CLI handles its own onboarding (gateway URL, token, etc.)
+brew install openclaw         # or however your distribution ships it
+openclaw onboard              # one-time interactive setup
+```
+
+### 2. Install Cahoot with the ACP extra
+
+```bash
+pip install -e ".[acp]"
+```
+
+(On macOS + Python 3.13, follow up with `chflags -R nohidden .venv` — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for why.)
+
+### 3. Edit `~/.config/cahoot/cahoot.toml`
+
+```toml
+[cahoot]
+room = "ops"
+log_level = "INFO"
+
+# (Optional) lock the fleet down so only listed agents can join.
+# Without this block, admission mode defaults to "open" and every
+# successfully-spawned agent is admitted as soon as it ACKs the welcome.
+[cahoot.admission]
+mode = "strict"
+allowed_ids = []   # any [[agents]] below are auto-allowlisted in strict mode
+
+# Hermes Agent — the orchestrator.
+# `version` pins the uvx --from spec so the build is reproducible.
+[[agents]]
+id = "hermes-main"
+role = "orchestrator"
+kind = "hermes"
+version = "0.14.0"
+cwd = "~/work/project"          # where Hermes runs its ACP session
+permission_policy = "auto-allow" # or "deny" for full-stop interactive
+
+# OpenClaw formatter #1 — routes through the OpenClaw Gateway.
+# Prefer token_file over inline token so the secret stays out of the config.
+[[agents]]
+id = "openclaw-formatter-1"
+role = "formatter"
+kind = "openclaw"
+token_file = "~/.openclaw/main.token"
+session = "agent:formatter:main"
+
+# OpenClaw formatter #2 — second seat on the same gateway session pool.
+[[agents]]
+id = "openclaw-formatter-2"
+role = "formatter"
+kind = "openclaw"
+token_file = "~/.openclaw/main.token"
+session = "agent:formatter:secondary"
+```
+
+### 4. Start Cahoot
+
+```bash
+cahoot
+```
+
+For each agent block, Cahoot will:
+
+1. **Spawn** the agent process (`uvx --from 'hermes-agent[acp]==0.14.0' hermes-acp` or `openclaw acp --token-file … --session …`).
+2. **Run the ACP `initialize` handshake** and open one long-lived session.
+3. **Send the welcome prompt** — the agent must reply with the literal token `READY` to confirm it's operational.
+4. **Decide admission** — admitted (default) → instructions prompt with the participation rules; quarantined → restricted to operator-only visibility.
+5. **Stream the agent's `session/update` notifications** onto the bus as chat / task / metric / status envelopes for your roster, feed, and inspector.
+
+Inside the TUI:
+
+- `/roster` — see every agent, its lifecycle state, and its enrollment.
+- `/dm hermes-main please review the release notes` — direct an agent.
+- `/all heads up` — broadcast to every other agent.
+- `/approve openclaw-formatter-1` — live-admit a quarantined agent without a respawn.
+- `/deny openclaw-formatter-1 needs investigation` — quarantine an admitted agent.
+- `/whoami` — operator context (hostname, user, tmux, SSH connection).
+- `/help` for the full list, `/quit` for a clean shutdown.
+
+The agent-facing instructions (`@mention` routing, structured task / metric / error markers, etc.) are in [`docs/AGENT_GUIDE.md`](docs/AGENT_GUIDE.md). Cahoot also auto-sends a condensed version to each agent on admission, so they get the rules in their own context — no system-prompt edit required for agents Cahoot spawned itself.
 
 ## Daily operational pattern
 
@@ -106,7 +195,7 @@ Mac users: drop the `.app` bundle in `/Applications` (build instructions in [`do
 
 ## Status
 
-**Alpha — v1.0 surface complete** (75/75 tests passing):
+**Alpha — v1.0 surface complete** (94/94 tests passing, including 16 end-to-end UI journeys):
 
 - ✅ Typed event envelope (Pydantic v2 discriminated union)
 - ✅ In-memory pub/sub bus with bounded subscriber queues + wiretap
