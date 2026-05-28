@@ -5,9 +5,13 @@
 #
 # QUICK FIELD GUIDE
 #   id    — your choice; short unique label that appears in the roster.
-#   role  — your choice; free-text description (Cahoot uses it for display
-#           and for @role mention routing). Pick anything: planner, writer,
-#           reviewer, formatter, scout, qa — whatever fits your team.
+#   role  — your choice; a STICKY NOTE you put on the agent so you can
+#           tell which is which. Lives entirely in Cahoot's world: it is
+#           NOT sent into the agent's profile, model, system prompt, or
+#           capabilities. Cahoot uses it for the roster display and
+#           @<role> mention routing. The agent's actual behaviour is set
+#           by its own configuration (Hermes profile / OpenClaw session).
+#           Pick anything readable: planner, writer, reviewer, qa, etc.
 #   kind  — RESERVED; must match a registered adapter: "synthetic",
 #           "hermes", or "openclaw". Adding a new kind is a 1-line registry
 #           edit (see docs/ADAPTERS.md).
@@ -60,12 +64,12 @@ chatter_interval_s = 2.0
 # -----------------------------------------------------------------------------
 
 # Hermes Agent (NousResearch/hermes-agent).
-# In our setup it's the planner / orchestrator, but Cahoot doesn't care
-# what you call it. Change `role` to whatever describes your usage.
-# `version` pins the uvx --from spec so the build is reproducible.
+# `role` below is a STICKY NOTE for you — it does not configure Hermes.
+# Hermes's actual behaviour is fully set by the version you pin + its
+# own config files / OAuth.
 # [[agents]]
-# id   = "hermes-main"   # YOUR LABEL — must be unique across all agents
-# role = "planner"       # YOUR LABEL — any word that fits (e.g. "main", "orchestrator")
+# id   = "hermes-main"   # sticky-note label; must be unique
+# role = "planner"       # sticky-note label; pick anything readable
 # kind = "hermes"        # RESERVED — must be "hermes"
 # version = "0.14.0"
 # cwd = "~/work/project"
@@ -74,17 +78,21 @@ chatter_interval_s = 2.0
 # OpenClaw, first seat. Two seats below = two parallel jobs against the
 # same OpenClaw Gateway. `session` is OpenClaw's own selector format
 # (agent:<name>:<profile>) — substitute the session IDs you configured
-# inside OpenClaw. Prefer token_file over inline `token` so the secret
-# stays out of the config and process listing.
+# inside OpenClaw. That session string is what actually determines what
+# this agent does; `role` is just the sticky note Cahoot uses to display
+# it. Prefer token_file over inline `token` so the secret stays out of
+# the config and process listing.
 # [[agents]]
-# id   = "openclaw-1"     # YOUR LABEL
-# role = "writer"         # YOUR LABEL — could be "formatter", "qa", "researcher"…
+# id   = "openclaw-1"     # sticky-note label
+# role = "writer"         # sticky-note label; "formatter", "qa", "researcher" — your call
 # kind = "openclaw"       # RESERVED — must be "openclaw"
 # token_file = "~/.openclaw/main.token"
 # session    = "agent:writer:main"
 
-# OpenClaw, second seat — same role so /@writer mentions can land on
-# either of them.
+# OpenClaw, second seat — same `role` sticky note so @writer can DM
+# either of them. The two seats differ because they point at different
+# OpenClaw sessions (writer:main vs writer:secondary), NOT because of
+# the role label.
 # [[agents]]
 # id   = "openclaw-2"
 # role = "writer"

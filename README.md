@@ -94,14 +94,14 @@ Before the recipe, the field semantics — because three of these fields look li
 | Field | What it is | You pick? |
 |---|---|---|
 | `id` | A short unique label for this agent. It's what appears in the roster and what you type after `/dm`. Convention: kebab-case with a hint about role if you'll run multiples (`hermes-main`, `openclaw-1`). | **Yes — anything unique.** |
-| `role` | A free-text description of what the agent does. Cahoot **doesn't interpret this** — it only uses it for two things: (1) display in the roster widget, and (2) `@<role>` mention routing so agents can DM "the first writer" instead of typing a full ID. Pick any word that makes sense to you: `planner`, `writer`, `reviewer`, `main`, `formatter`, `qa` — your call. | **Yes — anything.** |
+| `role` | A **sticky note you put on the agent so you can tell which is which.** It lives entirely in Cahoot's world — it is *not* sent into the agent's configuration, model, system prompt, tools, or capabilities. Cahoot uses it for exactly two things: (1) display in the roster widget, and (2) `@<role>` mention routing so you can DM "the first writer" instead of typing a full ID. The agent's actual behaviour comes from its own setup (Hermes profile / OpenClaw session). Pick anything that helps *you* identify it: `planner`, `writer`, `reviewer`, `main`, `formatter`, `qa`. | **Yes — anything.** |
 | `kind` | Which adapter Cahoot should spawn. **Reserved**: must be one of `synthetic`, `hermes`, `openclaw`. Adding new agents to Cahoot is a one-line registry edit in `cahoot/adapters/__init__.py` — see [`docs/ADAPTERS.md`](docs/ADAPTERS.md). | No — must match a registered kind. |
 | `version` | (Optional, Hermes-only) Pins the uvx build of Hermes so the spawned binary is reproducible. | The version string is up to you (defaults to latest on PyPI). |
 | `cwd` | Working directory the agent will run in. | Yes. |
 | `permission_policy` | (Optional, ACP adapters) `auto-allow` (default) admits every tool call the agent asks to run; `deny` blocks them all. v1.5 will add an interactive prompt. | One of `auto-allow` \| `deny`. |
 | Anything else | Forwarded to the adapter constructor as keyword arguments. For Hermes there are no extras; for OpenClaw: `token`, `token_file`, `session`, `session_label`, `gateway_url`, `reset_session`, `profile`. | Yes — these are OpenClaw's own CLI flags (see `openclaw acp --help`). |
 
-> **TL;DR**: `kind` is reserved (`hermes` / `openclaw` / `synthetic`). Everything else — `id`, `role`, OpenClaw's `session` string — is a label you make up.
+> **TL;DR**: `kind` is reserved (`hermes` / `openclaw` / `synthetic`). Everything else — `id`, `role`, OpenClaw's `session` string — is a label you make up. **`role` in particular is just a sticky note for the operator; it does not configure the agent.** Two `role = "writer"` seats are *not* a Cahoot setting that makes them write — what they actually do is determined entirely by how you set Hermes / OpenClaw up on disk.
 
 ### 1. Install the agent runtimes
 
@@ -139,33 +139,35 @@ mode = "strict"     # "open" (default) or "strict"
 allowed_ids = []    # extra IDs to allow on top of the [[agents]] list
 
 # ─── Agent 1: Hermes ──────────────────────────────────────────────────
-# In our setup Hermes is the planner / orchestrator — but Cahoot doesn't
-# care what you call it. Change `role` to whatever fits your team.
+# `role` below is a sticky note for YOU — it does not configure Hermes.
+# Hermes's actual behaviour is set by the version you pin + whatever its
+# own config files / OAuth contain.
 [[agents]]
-id   = "hermes-main"   # label you choose — appears as the row in the roster
-role = "planner"       # free-text — also routes @planner mentions here
+id   = "hermes-main"   # sticky-note label, must be unique across all agents
+role = "planner"       # sticky-note label, anything readable to you
 kind = "hermes"        # RESERVED — must be the literal string "hermes"
 version = "0.14.0"     # pins uvx --from hermes-agent[acp]==0.14.0
 cwd  = "~/work/project"
 permission_policy = "auto-allow"   # auto-allow | deny
 
-# ─── Agent 2: OpenClaw, first seat ────────────────────────────────────
-# Two OpenClaw seats so you can run two formatting / writing tasks in
-# parallel. They share a Gateway token but use different sessions.
+# ─── Agents 2 + 3: two OpenClaw seats ─────────────────────────────────
+# Both seats below get `role = "writer"`, which is JUST a label so the
+# roster shows them as writers and so we can @writer either of them.
+# Their actual capability comes from the OpenClaw `session` they each
+# point at (writer:main vs writer:secondary), not from the role label.
 [[agents]]
-id   = "openclaw-1"    # label you choose — pick anything unique
-role = "writer"        # free-text — could be "formatter", "qa", "scout"…
+id   = "openclaw-1"    # sticky-note label
+role = "writer"        # sticky-note label
 kind = "openclaw"      # RESERVED — must be "openclaw"
 token_file = "~/.openclaw/main.token"     # path to your real token file
 session    = "agent:writer:main"          # OpenClaw Gateway session ID — yours
 
-# ─── Agent 3: OpenClaw, second seat ───────────────────────────────────
 [[agents]]
 id   = "openclaw-2"
-role = "writer"        # same role as agent 2; @writer DMs whichever Cahoot finds first
+role = "writer"        # same sticky-note as agent 2; @writer DMs whichever Cahoot finds first
 kind = "openclaw"
 token_file = "~/.openclaw/main.token"
-session    = "agent:writer:secondary"
+session    = "agent:writer:secondary"     # different OpenClaw session — that's what makes seat #2 different
 ```
 
 **About OpenClaw's `session` value.** OpenClaw uses a structured session string (`agent:<name>:<profile>`) to address a specific seat inside its Gateway — see `openclaw acp --help`. The names `writer:main` and `writer:secondary` above are placeholders; substitute whatever names you've configured in OpenClaw's own setup.

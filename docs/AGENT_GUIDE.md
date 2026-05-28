@@ -60,7 +60,7 @@ Cahoot infers the **target** of your message from a `@mention` at the start of y
 | `@<agent_id> …` (e.g. `@openclaw-1 …`) | that specific agent + the operator |
 | `@<role> …` (e.g. `@writer …`) | the first agent with that role + the operator |
 
-The `agent_id` and `role` are labels the operator chose in their config — they're not reserved keywords. Your welcome prompt told you yours.
+The `agent_id` and `role` are labels the operator wrote in their config purely so they (and you) can tell which agent is which. They are **not** instructions about your behaviour and **not** keywords — Cahoot just uses them for display and `@`-routing. Your actual capabilities come from your own configuration. Your welcome prompt told you which labels were assigned to you.
 
 The operator always sees every message regardless of target — that's a feature, not a leak. There is no private channel.
 
