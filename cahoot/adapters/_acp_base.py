@@ -259,6 +259,9 @@ class ACPAdapter(AgentAdapter):
             )
         )
 
+        # Expose enrollment state as a property so the UI / command box can
+        # render it. See :meth:`enrollment` below.
+
         # Surface the enrollment outcome to the operator feed as a status
         # detail so the operator can see who's in vs quarantined.
         await self._publish(
@@ -268,6 +271,87 @@ class ACPAdapter(AgentAdapter):
                 payload=ChatPayload(text=f"[enrollment] {self.agent_id}: {self._enrollment}"),
             )
         )
+
+    # ------------------------------------------------------------------
+    # Runtime admission control — used by the /approve and /deny commands
+    # ------------------------------------------------------------------
+
+    @property
+    def enrollment(self) -> EnrollmentState:
+        """Public read-only view of the agent's enrollment state."""
+        return self._enrollment
+
+    async def admit(self, *, by: str = "operator") -> bool:
+        """Move the agent into ``ADMITTED`` and notify it.
+
+        Returns True if the state changed (was not already admitted).
+        Idempotent and safe to call while disconnected — in that case it
+        just records the new desired state so the next reconnect skips
+        the quarantine path.
+        """
+        if self._enrollment is EnrollmentState.ADMITTED:
+            return False
+        self._enrollment = EnrollmentState.ADMITTED
+        log.info("acp adapter %s admitted by %s", self.agent_id, by)
+        await self._send_runtime_notice(
+            f"✅ Admitted by {by}. You are now part of the fleet. "
+            f"Standard @mention routing applies; see the participation "
+            f"guide already sent."
+        )
+        await self._publish(
+            Envelope(
+                source=self.agent_id,
+                target="operator",
+                payload=ChatPayload(text=f"[admission] {self.agent_id}: admitted by {by}"),
+            )
+        )
+        return True
+
+    async def quarantine(self, *, by: str = "operator", reason: str | None = None) -> bool:
+        """Move the agent into ``QUARANTINED`` and notify it.
+
+        While quarantined, the adapter clamps outbound routing to
+        ``operator`` and drops inbound from non-operator sources.
+        """
+        if self._enrollment is EnrollmentState.QUARANTINED:
+            return False
+        self._enrollment = EnrollmentState.QUARANTINED
+        log.info("acp adapter %s quarantined by %s: %s", self.agent_id, by, reason)
+        notice = build_quarantine_notice(agent_id=self.agent_id, reason=reason)
+        await self._send_runtime_notice(notice)
+        await self._publish(
+            Envelope(
+                source=self.agent_id,
+                target="operator",
+                payload=ChatPayload(
+                    text=(
+                        f"[admission] {self.agent_id}: quarantined by {by}"
+                        f"{' — ' + reason if reason else ''}"
+                    )
+                ),
+            )
+        )
+        return True
+
+    async def _send_runtime_notice(self, text: str) -> None:
+        """Send a short out-of-band prompt to the agent (admission changes)."""
+        if self._connection is None or self._session_id is None:
+            log.debug(
+                "acp adapter %s: skipping runtime notice (not connected)",
+                self.agent_id,
+            )
+            return
+        acp = _require_acp()
+        try:
+            await self._connection.prompt(
+                acp.PromptRequest(
+                    session_id=self._session_id,
+                    prompt=[acp.text_block(text)],
+                    message_id=f"cahoot-runtime-{self.agent_id}",
+                )
+            )
+        except Exception as exc:
+            log.warning("acp adapter %s: runtime notice failed: %r", self.agent_id, exc)
 
     async def _close(self) -> None:
         # Drop refs first so concurrent writers don't race on a half-closed conn.

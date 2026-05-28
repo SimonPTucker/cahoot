@@ -50,7 +50,11 @@ class Bus(Protocol):
     async def publish(self, envelope: Envelope) -> None: ...
 
     def subscribe(
-        self, subscriber_id: str, *, maxsize: int = DEFAULT_QUEUE_MAXSIZE
+        self,
+        subscriber_id: str,
+        *,
+        maxsize: int = DEFAULT_QUEUE_MAXSIZE,
+        wiretap: bool = False,
     ) -> asyncio.Queue[Envelope]: ...
 
     def unsubscribe(self, subscriber_id: str) -> None: ...
@@ -64,6 +68,7 @@ class InMemoryBus:
 
     def __init__(self) -> None:
         self._subs: dict[str, asyncio.Queue[Envelope]] = {}
+        self._wiretaps: set[str] = set()
         self.dropped: int = 0
         """Cumulative count of envelopes dropped to relieve backpressure."""
 
@@ -74,18 +79,29 @@ class InMemoryBus:
         subscriber_id: str,
         *,
         maxsize: int = DEFAULT_QUEUE_MAXSIZE,
+        wiretap: bool = False,
     ) -> asyncio.Queue[Envelope]:
         """Register ``subscriber_id`` and return its inbox queue.
 
         Re-subscribing with the same id replaces the queue (the old one is
         orphaned). The maxsize is per-subscriber.
+
+        Set ``wiretap=True`` to receive every envelope on the bus regardless
+        of target, useful for persistence stores and audit logs. Wiretaps
+        do not count as broadcast targets — sending ``target="all"`` still
+        excludes them from the recipient set, they just get a copy anyway.
         """
         q: asyncio.Queue[Envelope] = asyncio.Queue(maxsize=maxsize)
         self._subs[subscriber_id] = q
+        if wiretap:
+            self._wiretaps.add(subscriber_id)
+        else:
+            self._wiretaps.discard(subscriber_id)
         return q
 
     def unsubscribe(self, subscriber_id: str) -> None:
         self._subs.pop(subscriber_id, None)
+        self._wiretaps.discard(subscriber_id)
 
     def subscriber_ids(self) -> list[str]:
         return list(self._subs)
@@ -112,11 +128,14 @@ class InMemoryBus:
 
         if envelope.target == "all":
             for sub in self._subs:
-                if sub != envelope.source:
+                if sub != envelope.source and sub not in self._wiretaps:
                     recipients.add(sub)
         else:
             if envelope.target in self._subs:
                 recipients.add(envelope.target)
+
+        # Wiretaps see every envelope regardless of target.
+        recipients.update(self._wiretaps)
 
         for sub_id in recipients:
             self._deliver(sub_id, envelope)

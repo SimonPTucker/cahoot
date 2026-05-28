@@ -1,0 +1,34 @@
+#!/bin/bash
+#
+# Cahoot.app launcher — opens Terminal attached to the running tmux session.
+#
+# Customise behaviour via environment (or `launchctl setenv`):
+#   CAHOOT_HOST     — host to SSH into. Empty/unset = local.
+#   CAHOOT_SESSION  — tmux session name. Default: cahoot.
+#   CAHOOT_CMD      — command tmux should run. Default: cahoot.
+#                     Use `python -m cahoot` for a dev checkout.
+#
+# No code signing needed for personal use. Gatekeeper will warn on the first
+# launch; right-click → Open dismisses it permanently.
+
+set -euo pipefail
+
+HOST="${CAHOOT_HOST:-}"
+SESSION="${CAHOOT_SESSION:-cahoot}"
+CMD="${CAHOOT_CMD:-cahoot}"
+
+# `new-session -A` attaches if the session exists, otherwise creates and runs.
+TMUX_CMD="tmux new-session -A -s ${SESSION} '${CMD}'"
+
+if [[ -n "${HOST}" ]]; then
+    DO_SCRIPT="ssh -t ${HOST} \"${TMUX_CMD}\""
+else
+    DO_SCRIPT="${TMUX_CMD}"
+fi
+
+osascript <<EOF
+tell application "Terminal"
+    activate
+    do script "${DO_SCRIPT}"
+end tell
+EOF

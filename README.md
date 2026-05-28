@@ -106,18 +106,20 @@ Mac users: drop the `.app` bundle in `/Applications` (build instructions in [`do
 
 ## Status
 
-**Alpha.** Foundational layer is built and tested (16/16 passing):
+**Alpha — v1.0 surface complete** (75/75 tests passing):
 
 - ✅ Typed event envelope (Pydantic v2 discriminated union)
-- ✅ In-memory pub/sub bus with bounded subscriber queues
+- ✅ In-memory pub/sub bus with bounded subscriber queues + wiretap
 - ✅ Adapter ABC with lifecycle, heartbeats, liveness detection, reconnect-with-jitter
 - ✅ Synthetic adapter (working reference implementation)
 - ✅ Runtime: state dir, single-instance lock, signal handling, rotating logs
-- ✅ Config loading from TOML
-- ⏳ Textual UI (next)
-- ⏳ SQLite persistence and replay
-- ⏳ Concrete Hermes and OpenClaw adapters
-- ⏳ Mac `.app` launcher bundle
+- ✅ Config loading from TOML (with admission policy section)
+- ✅ **SQLite event store** with WAL, replay on UI mount
+- ✅ **Hermes + OpenClaw adapters** via Agent Client Protocol (stdio JSON-RPC)
+- ✅ **Agent onboarding handshake** — welcome → ACK → admit → instructions
+- ✅ **Textual UI shell** — roster | feed | inspector | command box
+- ✅ **Operator commands** — /dm /all /whoami /roster /approve /deny /help /quit
+- ✅ **Mac `.app` launcher** — double-click attaches to the tmux session
 
 [`CLAUDE.md`](CLAUDE.md) is the explicit build plan for the remaining phases.
 
