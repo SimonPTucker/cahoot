@@ -1,27 +1,6 @@
 <div align="center">
 
-```
-      _  _  _                     _                             
-   _ (_)(_)(_) _                 (_)                            
-  (_)         (_)   _  _  _      (_) _  _  _       _  _  _     
-  (_)              (_)(_)(_) _   (_)(_)(_)(_)_  _ (_)(_)(_) _  
-  (_)               _  _  _ (_)  (_)        (_)(_)         (_) 
-  (_)          _  _(_)(_)(_)(_)  (_)        (_)(_)         (_) 
-  (_) _  _  _ (_)(_)_  _  _ (_)_ (_)        (_)        _  _(_) 
-     (_)(_)(_)     (_)(_)(_)  (_)(_)        (_)        (_)(_)  
-
-                    _                                          
-                   (_)                                         
-      _  _  _    _ (_) _  _                                    
-   _ (_)(_)(_) _(_)(_)(_)(_)                                   
-  (_)         (_)  (_)                                         
-  (_)         (_)  (_)     _                                   
-  (_) _  _  _ (_)  (_)_  _(_)                                  
-     (_)(_)(_)       (_)(_)                                    
-
-       mission control for agent fleets
-              by Kenjin · 2026
-```
+<img src="docs/assets/banner.svg" alt="Cahoot — mission control for agent fleets" width="640">
 
 **A terminal-native operator console for multi-agent AI orchestration.**
 Built to live in a long-running tmux session you SSH into from anywhere.
