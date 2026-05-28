@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="c-gradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E65100"/>
+      <stop offset="100%" stop-color="#FFD54F"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="180" ry="180" fill="#0d1117"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace" font-weight="600" font-size="95.7" fill="url(#c-gradient)">
+    <text xml:space="preserve"><tspan x="170.4" y="181.3" xml:space="preserve">      _  _  _</tspan><tspan x="170.4" y="285.3" xml:space="preserve">   _ (_)(_)(_) _</tspan><tspan x="170.4" y="389.3" xml:space="preserve">  (_)         (_)</tspan><tspan x="170.4" y="493.3" xml:space="preserve">  (_)</tspan><tspan x="170.4" y="597.3" xml:space="preserve">  (_)</tspan><tspan x="170.4" y="701.3" xml:space="preserve">  (_)          _</tspan><tspan x="170.4" y="805.3" xml:space="preserve">  (_) _  _  _ (_)</tspan><tspan x="170.4" y="909.3" xml:space="preserve">     (_)(_)(_)</tspan></text>
+  </g>
+</svg>

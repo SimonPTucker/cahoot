@@ -102,7 +102,7 @@ ssh agents-box -t tmux attach -t cahoot
 
 `tmux attach` reconnects you to the live dashboard exactly where you left it. Detach with `Ctrl-b d` and your session keeps running. This is the standard persistent-SSH pattern that works for any long-running TUI.
 
-Mac users: drop the `.app` bundle in `/Applications` (build instructions in [`docs/OPERATIONS.md`](docs/OPERATIONS.md)) to launch the SSH-attach in one click from Spotlight or the Dock.
+Mac users: drop the `.app` bundle in `/Applications` (build instructions in [`docs/OPERATIONS.md`](docs/OPERATIONS.md)) to launch the SSH-attach in one click from Spotlight or the Dock. The icon is the bubble-letter "C" from the banner above, with the same yellow→deep-orange gradient — regenerated from `cahoot.banner.BANNER_ART` via `scripts/generate_app_icon.py`.
 
 ## Status
 

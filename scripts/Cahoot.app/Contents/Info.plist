@@ -14,6 +14,8 @@
     <string>0.1.0</string>
     <key>CFBundleExecutable</key>
     <string>run</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleSignature</key>
