@@ -43,3 +43,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - 4 new tests cover advertise + browse roundtrip on loopback (single instance, two instances simultaneously, empty-LAN baseline, service-type constant). Total: 111 passing.
 - `zeroconf>=0.131` added to the `[network]` extra (pure-Python, no system deps).
 - New `docs/ONBOARDING.md` — comprehensive end-to-end guide to network agent onboarding: architecture diagram, five-step flow, full wire-frame catalogue, invite token semantics, discovery details, admission modes, disconnection semantics, security model, troubleshooting playbook, cheat sheet.
+
+### Added (Phase B.2 — local runtime auto-detection)
+- `cahoot/local_detect.py` — `RuntimeProbe` dataclass + `detect_hermes()` / `detect_openclaw()` / `detect_synthetic()` + `pick_default()`. Hermes is "available" if `uvx` is on PATH (Hermes itself is fetched on demand); OpenClaw is "available" if its CLI is on PATH, and if `~/.openclaw/main.token` exists, it's auto-suggested as `token_file`.
+- `cahoot-join --detect` prints the report and exits. Useful before pasting an invite.
+- `cahoot-join` without `--kind` auto-picks the single available real runtime. Both installed → demands `--kind`. Neither → prints install hints and exits non-zero. Synthetic is intentionally never auto-picked.
+- `/invite` output simplified: the canonical block is now two arguments (`--token`, `--as`/`--role`) and a one-liner aside about how to add `--kind` / `--server` if either auto-discovery is unavailable.
+- 15 new tests cover every probe + every pick-default branch + the format-report tips. Total: 126 passing.

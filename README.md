@@ -320,15 +320,15 @@ That installer:
 3. Installs the `cahoot-join` CLI via `uv tool install` from git.
 4. Tells you whether `uvx` (for Hermes) and `openclaw` (for OpenClaw) are installed, with install hints if not.
 
-Then paste the `cahoot-join` command Cahoot printed in Step 2:
+Then paste the `cahoot-join` command Cahoot printed in Step 2. In the common case (one of Hermes / OpenClaw installed, Cahoot reachable via mDNS) it's two arguments long:
 
 ```bash
 cahoot-join \
   --token CH7-9X42-8K3M \
-  --as hermes-main --role planner \
-  --kind hermes \
-  -- uvx --from 'hermes-agent[acp]' hermes-acp
+  --as hermes-main --role planner
 ```
+
+`cahoot-join` auto-discovers Cahoot on the LAN and auto-detects whether to drive Hermes or OpenClaw based on what's installed on this box. To see what was detected, run `cahoot-join --detect`. If both runtimes are installed, add `--kind hermes` or `--kind openclaw` to disambiguate; if mDNS isn't available, add `--server ws://<cahoot-host>:9876`.
 
 Within a second or two the agent appears in Cahoot's roster, goes through the welcome → `READY` → admission → instructions flow, and is ready to receive operator DMs.
 

@@ -209,6 +209,7 @@ async def _bridge(
     kind: str,
     agent_argv: list[str],
     cwd: str | None,
+    extra_kwargs: dict[str, str] | None = None,
 ) -> int:
     websockets = _require_websockets()
     factory = REGISTRY.get(kind)
@@ -225,6 +226,10 @@ async def _bridge(
 
         bus = RemoteBridgeBus(ws)
         kwargs: dict[str, Any] = {}
+        # Auto-detection-supplied defaults (e.g. OpenClaw's detected
+        # token_file). Explicit CLI args override these below.
+        if extra_kwargs:
+            kwargs.update(extra_kwargs)
         if agent_argv:
             # For ACP kinds, pass through the launch command + args so
             # the bridge can launch the user-supplied binary instead of
@@ -309,6 +314,14 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="List Cahoot instances discovered via mDNS, then exit.",
     )
     p.add_argument(
+        "--detect",
+        action="store_true",
+        help=(
+            "Auto-detect which agent runtimes (Hermes / OpenClaw) are "
+            "installed on this machine, print a summary, then exit."
+        ),
+    )
+    p.add_argument(
         "--discover-timeout-s",
         type=float,
         default=2.5,
@@ -333,8 +346,13 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument(
         "--kind",
         choices=sorted(REGISTRY),
-        default="hermes",
-        help="Which Cahoot adapter to drive locally (default: hermes).",
+        default=None,
+        help=(
+            "Which Cahoot adapter to drive locally. If omitted, cahoot-join "
+            "auto-detects what's installed on this machine and uses it. "
+            "If both Hermes and OpenClaw are installed, you must pass "
+            "`--kind` explicitly to disambiguate."
+        ),
     )
     p.add_argument(
         "--cwd",
@@ -404,7 +422,7 @@ def main() -> int:
     args = _build_argparser().parse_args()
     setup_logging(level=getattr(logging, args.log_level.upper(), logging.INFO))
 
-    # --list short-circuits everything else.
+    # --list and --detect short-circuit everything else.
     if args.list:
         try:
             return asyncio.run(_do_list(args.discover_timeout_s))
@@ -414,13 +432,43 @@ def main() -> int:
             print(f"cahoot-join: {exc}", file=sys.stderr)
             return 1
 
-    # Required-arg checks moved here so --list doesn't fail validation.
+    if args.detect:
+        from .local_detect import detect_all, format_report
+
+        print(format_report(detect_all()))
+        return 0
+
+    # Required-arg checks moved here so --list / --detect don't fail
+    # validation.
     if args.token is None or args.agent_id is None:
         print(
-            "cahoot-join: --token and --as are required (unless --list)",
+            "cahoot-join: --token and --as are required (unless --list / --detect)",
             file=sys.stderr,
         )
         return 2
+
+    # Auto-pick --kind when omitted. Synthetic is never auto-picked.
+    extra_kwargs: dict[str, str] = {}
+    if args.kind is None:
+        from .local_detect import (
+            RuntimeUnavailableError,
+            detect_all,
+            pick_default,
+        )
+
+        try:
+            probe = pick_default(detect_all())
+        except RuntimeUnavailableError as exc:
+            print(f"cahoot-join: {exc}", file=sys.stderr)
+            return 2
+        args.kind = probe.kind
+        # Free defaults — e.g. OpenClaw's ~/.openclaw/main.token, if present.
+        extra_kwargs = dict(probe.suggested_kwargs)
+        log.info(
+            "auto-detected runtime: %s (%s)",
+            probe.kind,
+            probe.version or "version unknown",
+        )
 
     agent_argv = list(args.agent_argv or [])
     if agent_argv and agent_argv[0] == "--":
@@ -439,6 +487,7 @@ def main() -> int:
             kind=args.kind,
             agent_argv=agent_argv,
             cwd=str(Path(args.cwd).expanduser()) if args.cwd else None,  # noqa: ASYNC240
+            extra_kwargs=extra_kwargs,
         )
 
     try:

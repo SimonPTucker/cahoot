@@ -304,17 +304,30 @@ async def execute(
             )
         inv = invites.mint(agent_id=parsed.agent_id, role=parsed.role, issued_by=operator_id)
         ttl_min = int((inv.expires_at - inv.created_at) / 60)
+        # The canonical command relies on three auto-discoveries on the
+        # agent's box:
+        #   1. mDNS for `--server`
+        #   2. `--kind` from local runtime detection
+        #   3. launch command from the adapter's class defaults
+        # We surface explicit overrides at the bottom so the operator can
+        # paste those if the agent box can't auto-detect (e.g. both
+        # Hermes and OpenClaw are installed).
         block = (
             f"invite for {inv.agent_id} (role: {inv.role})\n"
             f"  token expires in {ttl_min} minutes; single-use\n"
             f"  paste this on the box where the agent will live:\n"
             f"\n"
             f"    cahoot-join \\\n"
-            f"      --server {server_url} \\\n"
             f"      --token {inv.token} \\\n"
-            f"      --as {inv.agent_id} --role {inv.role} \\\n"
-            f"      --kind hermes \\\n"
-            f"      -- uvx --from 'hermes-agent[acp]' hermes-acp"
+            f"      --as {inv.agent_id} --role {inv.role}\n"
+            f"\n"
+            f"  (cahoot-join auto-discovers Cahoot via mDNS and the "
+            f"installed agent runtime.\n"
+            f"   if both Hermes + OpenClaw are installed, add "
+            f"`--kind hermes` or `--kind openclaw`.\n"
+            f"   if mDNS isn't available, add `--server {server_url}`.\n"
+            f"   to see what's installed on that box, run `cahoot-join "
+            f"--detect`.)"
         )
         return CommandResult(feedback=block)
 

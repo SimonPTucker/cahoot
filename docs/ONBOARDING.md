@@ -228,6 +228,42 @@ Tokens are minted on the operator's request and live entirely in memory. There's
 
 ---
 
+## Local runtime auto-detection
+
+`cahoot-join` can figure out which agent runtime to drive without being told. When you omit `--kind`, the bridge probes the local machine:
+
+| Runtime | Detected when… |
+|---|---|
+| **Hermes** | `uvx` is on `PATH` (Hermes itself is fetched on demand by `uvx`). |
+| **OpenClaw** | `openclaw` CLI is on `PATH`. If `~/.openclaw/main.token` exists, it's used as the default `--token-file`. |
+| **Synthetic** | always available — but **never auto-picked**; pass `--kind synthetic` to opt in. |
+
+Resolution:
+
+- **One real runtime available** → used silently.
+- **Both Hermes and OpenClaw available** → bridge refuses to guess; pass `--kind hermes` or `--kind openclaw`.
+- **Neither** → bridge prints the install hints (one for each runtime it tried) and exits non-zero.
+
+`cahoot-join --detect` runs the probes and prints a report, then exits. Useful when you're setting up a new agent box and want to see what's installed before pasting an invite:
+
+```text
+agent runtimes detected on this machine:
+
+  ✓ hermes  uvx 0.9.7
+      uvx detected — Hermes will be fetched on first launch via `uvx --from 'hermes-agent[acp]' hermes-acp`.
+
+  ✓ openclaw  OpenClaw 1.4.2
+      openclaw CLI detected
+      default token file detected: /Users/you/.openclaw/main.token
+
+  ✓ synthetic
+      built-in test agent — no external runtime required.
+
+tip: multiple real runtimes available — pass `--kind <name>` to disambiguate.
+```
+
+The detection takes under a second in the typical case; in the worst case (two subprocess version probes time out) it caps at six seconds.
+
 ## Service discovery (mDNS / Bonjour)
 
 When `[cahoot.listener].advertise = true` (the default), Cahoot publishes itself as `_cahoot._tcp.local.` via Bonjour on macOS / Avahi on Linux. The TXT record carries:
