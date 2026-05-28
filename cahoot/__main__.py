@@ -58,19 +58,24 @@ async def _amain(no_ui: bool, cfg_path: Path | None) -> None:
     bus = InMemoryBus()
     op_queue = bus.subscribe("operator")
 
-    # Instantiate adapters from config.
+    # Instantiate adapters from config. Inject room + admission policy as
+    # kwargs so adapters that care (ACP-based ones) can run the onboarding
+    # handshake; others (synthetic) ignore them via **_ in their signature.
     adapters = []
     for spec in cfg.agents:
         factory = REGISTRY.get(spec.kind)
         if factory is None:
             log.error("unknown adapter kind %r for agent %r; skipping", spec.kind, spec.id)
             continue
+        kwargs = dict(spec.options)
+        kwargs.setdefault("room", cfg.room)
+        kwargs.setdefault("admission_policy", cfg.admission)
         adapter = factory(
             agent_id=spec.id,
             role=spec.role,
             bus=bus,
             config=AdapterConfig(version=spec.version),
-            **spec.options,
+            **kwargs,
         )
         adapters.append(adapter)
 

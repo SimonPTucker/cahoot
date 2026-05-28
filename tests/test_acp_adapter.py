@@ -18,8 +18,10 @@ import pytest
 
 from cahoot.adapter import AdapterConfig
 from cahoot.adapters._acp_base import ACPAdapter
+from cahoot.admission import AdmissionPolicy
 from cahoot.bus import InMemoryBus
-from cahoot.envelope import AgentState, ChatPayload, TaskPayload
+from cahoot.envelope import AgentState, ChatPayload, TaskPayload, chat
+from cahoot.onboarding import EnrollmentState
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,13 +47,20 @@ class _FakeProcess:
 
 
 class _FakeConnection:
-    """Minimal stand-in for ``acp.ClientSideConnection``."""
+    """Minimal stand-in for ``acp.ClientSideConnection``.
 
-    def __init__(self, client: Any) -> None:
+    To make adapter tests run end-to-end, the fake auto-replies to the
+    Cahoot welcome prompt with a streamed ACK so the onboarding handshake
+    completes. Set ``ack_response`` before ``run()`` to change what the
+    fake "agent" streams back.
+    """
+
+    def __init__(self, client: Any, ack_response: str = "READY captain") -> None:
         self.client = client
         self.prompts: list[acp.PromptRequest] = []
         self.initialized = False
         self.session_id = "sess-1"
+        self.ack_response = ack_response
 
     async def initialize(self, req: acp.InitializeRequest) -> acp.InitializeResponse:
         self.initialized = True
@@ -65,6 +74,15 @@ class _FakeConnection:
 
     async def prompt(self, req: acp.PromptRequest) -> acp.PromptResponse:
         self.prompts.append(req)
+        # Simulate the agent streaming a reply via session_update.
+        # For the welcome prompt, stream the ACK so onboarding completes.
+        if str(req.message_id or "").startswith("cahoot-welcome-") and self.ack_response:
+            chunk = schema.AgentMessageChunk(
+                session_update="agent_message_chunk",
+                content=acp.text_block(self.ack_response),
+            )
+            notif = acp.SessionNotification(session_id=self.session_id, update=chunk)
+            await self.client.session_update(notif)
         return acp.PromptResponse(stop_reason="end_turn")
 
 
@@ -133,23 +151,114 @@ async def test_acp_adapter_reaches_connected_and_sends_prompt(patched_spawn):
     task = asyncio.create_task(adapter.run())
     try:
         await _wait_state(op, AgentState.CONNECTED)
+        # By the time CONNECTED is published, onboarding has sent welcome
+        # + instructions.
+        cm = patched_spawn["cm"]
+        assert len(cm.connection.prompts) == 2
+        assert str(cm.connection.prompts[0].message_id).startswith("cahoot-welcome-")
+        assert str(cm.connection.prompts[1].message_id).startswith("cahoot-instructions-")
+        assert adapter._enrollment is EnrollmentState.ADMITTED
 
-        # Operator DMs the agent: bus → adapter inbox → _write → prompt.
-        from cahoot.envelope import chat
-
+        # Operator DMs the agent: bus → adapter inbox → _write → prompt #3.
         await bus.publish(chat("operator", "hermes-test", "review the release notes"))
 
-        # Wait for the prompt to land in the fake connection.
-        cm = patched_spawn["cm"]
         for _ in range(50):
-            if cm.connection.prompts:
+            if len(cm.connection.prompts) >= 3:
                 break
             await asyncio.sleep(0.02)
-        assert cm.connection.prompts, "prompt never reached fake connection"
-        prompt = cm.connection.prompts[0]
-        assert prompt.session_id == "sess-1"
-        # Prompt content blocks: list of TextContentBlock-like objects.
-        assert len(prompt.prompt) == 1
+        assert len(cm.connection.prompts) >= 3
+        op_prompt = cm.connection.prompts[2]
+        assert op_prompt.session_id == "sess-1"
+        # Operator's source is prefixed so the agent knows who to reply to.
+        block = op_prompt.prompt[0]
+        text = getattr(block.root if hasattr(block, "root") else block, "text", "")
+        assert text.startswith("[operator]")
+    finally:
+        await adapter.stop()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_onboarding_quarantines_unlisted_agent_in_strict_mode(patched_spawn):
+    bus = InMemoryBus()
+    op = bus.subscribe("operator")
+    policy = AdmissionPolicy(mode="strict", allowed_ids=frozenset({"different-agent"}))
+    adapter = _TestACPAdapter("rogue-1", "test", bus, admission_policy=policy)
+    task = asyncio.create_task(adapter.run())
+    try:
+        await _wait_state(op, AgentState.CONNECTED)
+        cm = patched_spawn["cm"]
+        # Second prompt should be the quarantine notice, not instructions.
+        assert len(cm.connection.prompts) == 2
+        second = cm.connection.prompts[1]
+        text = getattr(
+            second.prompt[0].root if hasattr(second.prompt[0], "root") else second.prompt[0],
+            "text",
+            "",
+        )
+        assert "QUARANTINED" in text
+        assert adapter._enrollment is EnrollmentState.QUARANTINED
+    finally:
+        await adapter.stop()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_no_ack_within_timeout_triggers_reconnect(patched_spawn, monkeypatch):
+    bus = InMemoryBus()
+    op = bus.subscribe("operator")
+    # Suppress the auto-ACK so the welcome prompt times out.
+    adapter = _TestACPAdapter(
+        "hermes-test",
+        "orchestrator",
+        bus,
+        AdapterConfig(reconnect_initial_s=0.01, reconnect_max_s=0.05),
+        ack_timeout_s=0.2,
+    )
+    # Patch the FakeConnection to NOT auto-ACK by reaching into the spawn fixture.
+    original_init = _FakeConnection.__init__
+
+    def init_no_ack(self, client, ack_response=""):
+        original_init(self, client, ack_response=ack_response)
+
+    monkeypatch.setattr(_FakeConnection, "__init__", init_no_ack)
+
+    task = asyncio.create_task(adapter.run())
+    try:
+        # ACK timeout raises from _open → base class emits an ErrorPayload
+        # describing the failed open and retries. We want to see that error.
+        deadline = asyncio.get_event_loop().time() + 3.0
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            assert remaining > 0, "never saw ack-timeout error envelope"
+            env = await asyncio.wait_for(op.get(), timeout=remaining)
+            if env.kind == "error" and "ACK" in env.payload.message.upper():
+                break
+    finally:
+        await adapter.stop()
+        await asyncio.wait_for(task, timeout=2.0)
+
+
+async def test_at_mention_routes_target(patched_spawn):
+    bus = InMemoryBus()
+    op = bus.subscribe("operator")
+    bus.subscribe("hermes-test")  # the adapter's own inbox
+    other = bus.subscribe("openclaw-1")  # a peer
+    adapter = _TestACPAdapter("hermes-test", "orchestrator", bus)
+    task = asyncio.create_task(adapter.run())
+    try:
+        await _wait_state(op, AgentState.CONNECTED)
+        cm = patched_spawn["cm"]
+        # Simulate the agent producing a chat chunk addressed @openclaw-1.
+        chunk = schema.AgentMessageChunk(
+            session_update="agent_message_chunk",
+            content=acp.text_block("@openclaw-1 please format this report"),
+        )
+        await cm.connection.client.session_update(
+            acp.SessionNotification(session_id="sess-1", update=chunk)
+        )
+        # Operator sees the chat (everyone does) AND openclaw-1 receives it.
+        env_other = await asyncio.wait_for(other.get(), timeout=1.0)
+        assert env_other.target == "openclaw-1"
+        assert "@openclaw-1" in env_other.payload.text
     finally:
         await adapter.stop()
         await asyncio.wait_for(task, timeout=2.0)

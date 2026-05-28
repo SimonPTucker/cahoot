@@ -31,12 +31,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from .. import __version__ as _CAHOOT_VERSION
 from ..adapter import AdapterConfig, AgentAdapter
+from ..admission import AdmissionPolicy
+from ..admission import decide as admission_decide
 from ..bus import Bus
 from ..envelope import (
     ChatPayload,
@@ -45,6 +48,13 @@ from ..envelope import (
     MetricPayload,
     Severity,
     TaskPayload,
+)
+from ..onboarding import (
+    EnrollmentState,
+    build_instructions_prompt,
+    build_quarantine_notice,
+    build_welcome_prompt,
+    extract_ack,
 )
 
 if TYPE_CHECKING:
@@ -108,6 +118,9 @@ class ACPAdapter(AgentAdapter):
         permission_policy: PermissionPolicy = "auto-allow",
         client_name: str = "cahoot",
         client_version: str | None = None,
+        room: str = "ops",
+        admission_policy: AdmissionPolicy | None = None,
+        ack_timeout_s: float = 30.0,
         **_: Any,
     ) -> None:
         super().__init__(agent_id, role, bus, config)
@@ -118,14 +131,23 @@ class ACPAdapter(AgentAdapter):
         self._permission_policy: PermissionPolicy = permission_policy
         self._client_name = client_name
         self._client_version = client_version or _CAHOOT_VERSION
+        self._room = room
+        self._admission_policy = admission_policy or AdmissionPolicy()
+        self._ack_timeout_s = ack_timeout_s
 
         # Set by _open, cleared by _close.
         self._connection: Any | None = None
         self._process: asyncio.subprocess.Process | None = None
         self._session_id: str | None = None
-        # `acp.spawn_agent_process` is an async context manager; we keep the
-        # handle so _close can exit it cleanly.
         self._cm: Any | None = None
+
+        # Onboarding state. Drives whether agent → operator routing is
+        # the only route allowed (QUARANTINED) or full bus access (ADMITTED).
+        self._enrollment: EnrollmentState = EnrollmentState.PENDING
+        # Accumulates the agent's reply text during the welcome window so we
+        # can scan for the ACK token.
+        self._ack_buffer: list[str] = []
+        self._ack_event = asyncio.Event()
 
     # ------------------------------------------------------------------
     # AgentAdapter contract
@@ -175,6 +197,78 @@ class ACPAdapter(AgentAdapter):
             getattr(self._process, "pid", "?"),
         )
 
+        # Onboarding handshake — must complete before AgentAdapter declares
+        # us CONNECTED. If it fails we raise; the base class catches and
+        # reconnects with backoff.
+        await self._run_onboarding()
+
+    async def _run_onboarding(self) -> None:
+        """Welcome + ACK wait + admission decision + instructions."""
+        acp = _require_acp()
+        assert self._connection is not None and self._session_id is not None
+
+        # Reset enrollment state for this attempt.
+        self._enrollment = EnrollmentState.AWAITING_ACK
+        self._ack_buffer.clear()
+        self._ack_event.clear()
+
+        welcome_text = build_welcome_prompt(
+            agent_id=self.agent_id,
+            role=self.role,
+            room=self._room,
+        )
+        await self._connection.prompt(
+            acp.PromptRequest(
+                session_id=self._session_id,
+                prompt=[acp.text_block(welcome_text)],
+                message_id=f"cahoot-welcome-{self.agent_id}",
+            )
+        )
+
+        # Wait for an ACK token in the streamed reply.
+        try:
+            await asyncio.wait_for(self._ack_event.wait(), timeout=self._ack_timeout_s)
+        except TimeoutError as exc:
+            self._enrollment = EnrollmentState.REJECTED
+            raise ConnectionResetError(
+                f"agent {self.agent_id} did not ACK within {self._ack_timeout_s}s"
+            ) from exc
+
+        # Admission verdict.
+        decision = admission_decide(self._admission_policy, self.agent_id)
+        if decision.admitted:
+            self._enrollment = EnrollmentState.ADMITTED
+            follow_up = build_instructions_prompt(
+                agent_id=self.agent_id,
+                role=self.role,
+                room=self._room,
+            )
+        else:
+            self._enrollment = EnrollmentState.QUARANTINED
+            follow_up = build_quarantine_notice(
+                agent_id=self.agent_id,
+                reason=decision.reason,
+            )
+            log.warning("acp adapter %s quarantined: %s", self.agent_id, decision.reason)
+
+        await self._connection.prompt(
+            acp.PromptRequest(
+                session_id=self._session_id,
+                prompt=[acp.text_block(follow_up)],
+                message_id=f"cahoot-instructions-{self.agent_id}",
+            )
+        )
+
+        # Surface the enrollment outcome to the operator feed as a status
+        # detail so the operator can see who's in vs quarantined.
+        await self._publish(
+            Envelope(
+                source=self.agent_id,
+                target="operator",
+                payload=ChatPayload(text=f"[enrollment] {self.agent_id}: {self._enrollment}"),
+            )
+        )
+
     async def _close(self) -> None:
         # Drop refs first so concurrent writers don't race on a half-closed conn.
         self._connection = None
@@ -222,13 +316,25 @@ class ACPAdapter(AgentAdapter):
         if self._connection is None or self._session_id is None:
             raise RuntimeError("acp adapter not connected")
 
+        # Quarantined agents only receive operator messages — never peer
+        # broadcast. Drop anything else with an operator-visible note.
+        if self._enrollment is not EnrollmentState.ADMITTED and envelope.source != "operator":
+            log.info(
+                "acp adapter %s (not admitted) dropping inbound from %s",
+                self.agent_id,
+                envelope.source,
+            )
+            return
+
         acp = _require_acp()
         payload = envelope.payload
         assert isinstance(payload, ChatPayload)  # type-narrowing for mypy
 
+        # Tell the agent who sent it so it can address its reply.
+        prefixed = f"[{envelope.source}] {payload.text}"
         prompt_req = acp.PromptRequest(
             session_id=self._session_id,
-            prompt=[acp.text_block(payload.text)],
+            prompt=[acp.text_block(prefixed)],
             message_id=envelope.id,
         )
         await self._connection.prompt(prompt_req)
@@ -365,14 +471,43 @@ class ACPAdapter(AgentAdapter):
         text = _extract_text(getattr(update, "content", None))
         if not text:
             return
+
+        # During onboarding, accumulate the agent's reply and scan for the
+        # ACK token. The text is still surfaced to the operator so they can
+        # see the greeting verbatim.
+        if self._enrollment is EnrollmentState.AWAITING_ACK and not from_thought:
+            self._ack_buffer.append(text)
+            if extract_ack("".join(self._ack_buffer)):
+                self._ack_event.set()
+
         prefix = "💭 " if from_thought else ""
+        resolved_target = self._route_target(text, default=target)
         await self._publish_from_agent(
             Envelope(
                 source=self.agent_id,
-                target=target,
+                target=resolved_target,
+                room=self._room,
                 payload=ChatPayload(text=f"{prefix}{text}"),
             )
         )
+
+    def _route_target(self, text: str, *, default: str) -> str:
+        """Resolve @mention prefix to a Cahoot bus target.
+
+        Quarantined agents are clamped to ``operator`` regardless of what
+        they typed — the operator still sees a note that a non-operator
+        target was requested.
+        """
+        target = _parse_mention(text) or default
+        if self._enrollment is not EnrollmentState.ADMITTED and target != "operator":
+            # Surface the attempt for the operator's benefit.
+            log.info(
+                "acp adapter %s (quarantined) suppressed target=%r → operator",
+                self.agent_id,
+                target,
+            )
+            return "operator"
+        return target
 
     async def _on_tool_call(self, update: Any) -> None:
         status = getattr(update, "status", None) or "pending"
@@ -425,6 +560,15 @@ class ACPAdapter(AgentAdapter):
 
     def _default_env(self) -> dict[str, str]:  # for subclasses to override
         return {}
+
+
+_MENTION_RE = re.compile(r"^\s*@([A-Za-z0-9._:-]+)\b")
+
+
+def _parse_mention(text: str) -> str | None:
+    """Return the ``@<token>`` at the start of ``text``, or ``None``."""
+    m = _MENTION_RE.match(text)
+    return m.group(1) if m else None
 
 
 def _extract_text(content: Any) -> str:

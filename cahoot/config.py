@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .admission import AdmissionMode, AdmissionPolicy
 from .runtime import config_path as default_config_path
 
 __all__ = [
@@ -54,6 +55,7 @@ class CahootConfig:
     room: str = "ops"
     log_level: str = "INFO"
     agents: tuple[AgentSpec, ...] = ()
+    admission: AdmissionPolicy = field(default_factory=AdmissionPolicy)
     source_path: Path | None = None
 
 
@@ -128,9 +130,31 @@ def _parse(raw: dict[str, Any], *, source: Path) -> CahootConfig:
             )
         )
 
+    admission = _parse_admission(raw.get("cahoot", {}).get("admission", {}), agents)
+
     return CahootConfig(
         room=room,
         log_level=log_level,
         agents=tuple(agents),
+        admission=admission,
         source_path=source,
     )
+
+
+def _parse_admission(section: Any, agents: list[AgentSpec]) -> AdmissionPolicy:
+    if not section:
+        return AdmissionPolicy()
+    if not isinstance(section, dict):
+        raise ConfigError("[cahoot.admission] must be a table")
+    mode = section.get("mode", "open")
+    if mode not in {"open", "strict"}:
+        raise ConfigError(f"[cahoot.admission].mode must be 'open' or 'strict', got {mode!r}")
+    allowed = section.get("allowed_ids", [])
+    if not isinstance(allowed, list) or not all(isinstance(s, str) for s in allowed):
+        raise ConfigError("[cahoot.admission].allowed_ids must be a list of strings")
+    # In strict mode, also implicitly trust every agent listed in [[agents]] —
+    # they're already in the config so the operator clearly intended them.
+    if mode == "strict":
+        allowed = list({*allowed, *(a.id for a in agents)})
+    mode_typed: AdmissionMode = mode  # narrow Literal
+    return AdmissionPolicy(mode=mode_typed, allowed_ids=frozenset(allowed))
