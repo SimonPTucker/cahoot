@@ -318,7 +318,7 @@ That installer:
 1. Checks Python 3.11+.
 2. Installs `uv` if missing.
 3. Installs the `cahoot-join` CLI via `uv tool install` from git.
-4. Tells you whether `uvx` (for Hermes) and `openclaw` (for OpenClaw) are installed, with install hints if not.
+4. Runs `cahoot-join --detect` to show you, right there in the terminal, which agent runtimes (Hermes / OpenClaw) it found on this machine, the version of each, and install hints for whatever's missing. You can re-run `cahoot-join --detect` at any time.
 
 Then paste the `cahoot-join` command Cahoot printed in Step 2. In the common case (one of Hermes / OpenClaw installed, Cahoot reachable via mDNS) it's two arguments long:
 

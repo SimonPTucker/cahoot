@@ -97,31 +97,15 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────────────────
-# Agent runtimes — informational
+# Agent runtime auto-detection
 # ──────────────────────────────────────────────────────────────────────────
-step "Checking agent runtimes (informational)"
-NEEDS_UVX=1
-NEEDS_OPENCLAW=1
-
-if command -v uvx >/dev/null 2>&1; then
-  ok "uvx available — Hermes will work via 'uvx --from hermes-agent[acp] hermes-acp'"
-  NEEDS_UVX=0
-else
-  warn "uvx not found — required if this seat will run Hermes."
-  echo "    install via:  curl -LsSf https://astral.sh/uv/install.sh | sh"
-  echo "    (uv ships uvx too — restart your shell after install.)"
-fi
-
-if command -v openclaw >/dev/null 2>&1; then
-  ok "openclaw CLI installed"
-  NEEDS_OPENCLAW=0
-else
-  warn "openclaw CLI not found — required if this seat will run OpenClaw."
-  case "$(uname)" in
-    Darwin) echo "    install via:  brew install openclaw" ;;
-    *)      echo "    install via your distribution's OpenClaw package" ;;
-  esac
-  echo "    then run:     openclaw onboard"
+step "Auto-detecting agent runtimes via cahoot-join"
+echo
+# This is the authoritative report — version-aware, with install hints
+# for whatever isn't here. Anything we'd hand-roll in this script would
+# go stale; let the CLI tell us.
+if ! cahoot-join --detect; then
+  warn "cahoot-join --detect exited non-zero — see message above"
 fi
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -132,12 +116,12 @@ bold "All set."
 cat <<'MSG'
 
   Next steps:
-    1. Get an invite from your Cahoot operator (they type /invite in their TUI).
-    2. Paste the printed `cahoot-join …` command in this terminal.
-       If they didn't include --server, cahoot-join auto-discovers
-       Cahoot on the LAN via mDNS.
-    3. See what Cahoot instances are reachable from this box:
-         cahoot-join --list
+    1. Re-run the detection at any time:        cahoot-join --detect
+    2. See which Cahoot servers are reachable:  cahoot-join --list
+    3. When your operator types /invite, paste their `cahoot-join …`
+       block here. In the typical case (one of Hermes / OpenClaw
+       installed, Cahoot reachable via mDNS) it'll be just:
+           cahoot-join --token <T> --as <agent_id> --role <role>
 
   Docs:
     Onboarding flow:    https://github.com/SimonPTucker/cahoot/blob/main/docs/ONBOARDING.md
